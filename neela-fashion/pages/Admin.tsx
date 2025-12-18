@@ -12,8 +12,6 @@ import {
 } from 'lucide-react';
 import { Product, ShippingRule, INDIAN_STATES, SHIPPING_TYPES, Order, ContactContent, User, AVAILABLE_SIZES } from '../types';
 
-type AdminTab = 'dashboard' | 'global' | 'home' | 'about' | 'contact' | 'categories' | 'products' | 'users' | 'orders' | 'reviews' | 'settings';
-
 // --- Reusable Components ---
 
 const Toast: React.FC<{ message: string, onClose: () => void }> = ({ message, onClose }) => {
@@ -50,12 +48,11 @@ const ConfirmModal: React.FC<{ isOpen: boolean, title: string, message: string, 
 };
 
 // --- Dashboard View ---
-const DashboardView = ({ setTab }: { setTab: (tab: AdminTab) => void }) => {
+const DashboardView = ({ setTab }: { setTab: (tab: any) => void }) => {
   const { orders, users, products, reviews } = useCMS();
   const totalRevenue = orders.reduce((acc, o) => acc + o.total, 0);
   const totalSales = orders.length;
   
-  // Logic for Low Stock: < 5 total OR any size stock <= 10 (Strict check as requested)
   const lowStockProducts = products.filter(p => {
       const isTotalLow = p.stock < 5;
       const isAnySizeLow = p.sizeStock ? Object.values(p.sizeStock).some(qty => Number(qty) <= 10) : false;
@@ -71,13 +68,9 @@ const DashboardView = ({ setTab }: { setTab: (tab: AdminTab) => void }) => {
     { id: 'settings', label: 'Admin Access', icon: Settings, color: 'text-gray-600', bg: 'bg-gray-50' },
   ];
 
-  // --- Monthly Sales Report Generator ---
   const handleDownloadMonthlyReport = () => {
-    // Group orders by Month-Year
     const salesByMonth: { [key: string]: { revenue: number, count: number } } = {};
-
     orders.forEach(order => {
-        // Assuming order.date is "MM/DD/YYYY" or similar locale string
         const dateObj = new Date(order.date);
         if (!isNaN(dateObj.getTime())) {
             const monthYear = dateObj.toLocaleString('default', { month: 'long', year: 'numeric' });
@@ -88,13 +81,10 @@ const DashboardView = ({ setTab }: { setTab: (tab: AdminTab) => void }) => {
             salesByMonth[monthYear].count += 1;
         }
     });
-
-    // Create CSV Content
     const headers = ["Month", "Total Orders", "Total Revenue"];
     const rows = Object.entries(salesByMonth).map(([month, data]) => {
         return `"${month}",${data.count},${data.revenue.toFixed(2)}`;
     });
-
     const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows].join("\n");
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
@@ -109,7 +99,6 @@ const DashboardView = ({ setTab }: { setTab: (tab: AdminTab) => void }) => {
     <div className="space-y-8 animate-fade-in max-w-7xl mx-auto font-sans pb-10">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-gray-200 pb-6 gap-4">
           <div>
-             {/* Changed to font-sans as requested for Dashboard */}
              <h2 className="text-4xl font-bold text-navy-900 tracking-tight">Dashboard</h2>
              <p className="text-gray-500 text-sm mt-1 flex items-center"><Activity size={14} className="mr-1 text-gold-600"/> Real-time overview of your store's performance.</p>
           </div>
@@ -131,7 +120,6 @@ const DashboardView = ({ setTab }: { setTab: (tab: AdminTab) => void }) => {
           </div>
       </div>
       
-      {/* Stats Cards - Removed font-serif for cleaner professional look */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
          <div className="bg-gradient-to-br from-navy-900 to-navy-800 p-6 rounded-xl shadow-lg text-white relative overflow-hidden group hover:scale-[1.02] transition-transform">
             <div className="absolute top-0 right-0 w-24 h-24 bg-white/10 rounded-full -mr-8 -mt-8 blur-2xl"></div>
@@ -195,7 +183,6 @@ const DashboardView = ({ setTab }: { setTab: (tab: AdminTab) => void }) => {
          </div>
       </div>
 
-      {/* Recent Orders Table */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
               <div className="flex justify-between items-center mb-6">
@@ -237,14 +224,13 @@ const DashboardView = ({ setTab }: { setTab: (tab: AdminTab) => void }) => {
               </div>
           </div>
 
-          {/* Quick Actions */}
           <div className="lg:col-span-1 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
               <h3 className="font-bold text-navy-900 text-lg mb-6">Quick Actions</h3>
               <div className="grid grid-cols-2 gap-4">
                   {shortcuts.map((item) => (
                       <button 
                         key={item.id}
-                        onClick={() => setTab(item.id as AdminTab)}
+                        onClick={() => setTab(item.id)}
                         className="p-4 rounded-lg border border-gray-100 hover:border-gold-200 hover:shadow-md transition-all flex flex-col items-center justify-center text-center group bg-gray-50 hover:bg-white"
                       >
                           <div className={`w-10 h-10 ${item.bg} rounded-full flex items-center justify-center mb-2 group-hover:scale-110 transition-transform`}>
@@ -300,7 +286,6 @@ const GlobalSettingsView = ({ setToast }: { setToast: (msg: string) => void }) =
                     </div>
                 </div>
 
-                {/* SOCIAL MEDIA & CONTACT */}
                 <div className="border-t pt-6 mt-6">
                     <h3 className="text-sm font-bold text-navy-900 uppercase tracking-widest mb-6">Social & Contact Links</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -546,7 +531,7 @@ const CategoryManagerView = ({ setToast }: { setToast: (msg: string) => void }) 
     ); 
 };
 
-// --- USER MANAGER (With Search Bar) ---
+// --- USER MANAGER ---
 const UserManagerView = ({ setToast }: { setToast: (msg: string) => void }) => { 
     const { users, deleteUser, toggleUserStatus } = useCMS(); 
     const [search, setSearch] = useState('');
@@ -705,7 +690,6 @@ const ReviewsManagerView = ({ setToast }: { setToast: (msg: string) => void }) =
         <div className="max-w-7xl mx-auto animate-fade-in space-y-8">
             <h2 className="text-3xl font-serif font-bold text-navy-900">Product Reviews</h2>
             
-            {/* Filters */}
             <div className="bg-white p-4 rounded-lg border border-gray-200 flex flex-col md:flex-row items-center gap-4">
                  <div className="flex items-center flex-1 w-full border border-gray-300 rounded px-3">
                      <Search size={20} className="text-gray-400 mr-3" />
@@ -780,7 +764,7 @@ const ReviewsManagerView = ({ setToast }: { setToast: (msg: string) => void }) =
     );
 };
 
-// --- PRODUCT MANAGER (With Bulk CSV Import/Export & Filters & SIZE GRID) ---
+// --- PRODUCT MANAGER ---
 const ProductManagerView = ({ setToast }: { setToast: (msg: string) => void }) => { 
     const { products, addProduct, updateProduct, deleteProduct, categories, bulkDeleteProducts, importProducts } = useCMS(); 
     const [search, setSearch] = useState(''); 
@@ -797,6 +781,7 @@ const ProductManagerView = ({ setToast }: { setToast: (msg: string) => void }) =
 
     // Initial Size Stock State for Form
     const [sizeStockInput, setSizeStockInput] = useState<{ [key: string]: number }>({});
+    const [sizePriceInput, setSizePriceInput] = useState<{ [key: string]: number }>({});
 
     const filteredProducts = products.filter(p => { 
         const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase()); 
@@ -805,7 +790,7 @@ const ProductManagerView = ({ setToast }: { setToast: (msg: string) => void }) =
     }); 
 
     const handleSave = async () => { 
-        if (!editProduct.name || !editProduct.price || !editProduct.category) { setToast('Please fill required fields'); return; } 
+        if (!editProduct.name || !editProduct.category) { setToast('Please fill required fields'); return; } 
         
         // Calculate Total Stock from Size Inputs
         let totalStock = 0;
@@ -814,7 +799,8 @@ const ProductManagerView = ({ setToast }: { setToast: (msg: string) => void }) =
         const finalProductData = {
             ...editProduct,
             stock: totalStock, // Total is sum of sizes
-            sizeStock: sizeStockInput // Specific size data
+            sizeStock: sizeStockInput, // Specific size data
+            sizePrices: sizePriceInput // Specific size price data
         };
 
         if (editProduct.id) { 
@@ -827,7 +813,7 @@ const ProductManagerView = ({ setToast }: { setToast: (msg: string) => void }) =
                 name: editProduct.name!, 
                 category: editProduct.category!, 
                 subCategory: editProduct.subCategory || '', 
-                price: Number(editProduct.price), 
+                price: Number(editProduct.price || 0), 
                 discountPrice: editProduct.discountPrice ? Number(editProduct.discountPrice) : undefined, 
                 image: editProduct.image || 'https://via.placeholder.com/400', 
                 images: editProduct.images || [], 
@@ -835,7 +821,8 @@ const ProductManagerView = ({ setToast }: { setToast: (msg: string) => void }) =
                 material: editProduct.material || '', 
                 rating: 5, 
                 stock: totalStock,
-                sizeStock: sizeStockInput 
+                sizeStock: sizeStockInput,
+                sizePrices: sizePriceInput
             }; 
             await addProduct(newP); 
         } 
@@ -845,19 +832,22 @@ const ProductManagerView = ({ setToast }: { setToast: (msg: string) => void }) =
     const openModal = (p?: Product) => { 
         if (p) { 
             setEditProduct({ ...p }); 
-            setSizeStockInput(p.sizeStock || {}); // Load existing sizes
+            setSizeStockInput(p.sizeStock || {}); 
+            setSizePriceInput(p.sizePrices || {});
         } else { 
             setEditProduct({ name: '', category: Object.keys(categories)[0] || '', subCategory: '', price: 0, stock: 0, description: '', image: '', images: [] }); 
-            setSizeStockInput({}); // Reset sizes
+            setSizeStockInput({}); 
+            setSizePriceInput({});
         } 
         setIsModalOpen(true); 
     }; 
 
     const handleSizeStockChange = (size: string, qty: string) => {
-        setSizeStockInput(prev => ({
-            ...prev,
-            [size]: Number(qty)
-        }));
+        setSizeStockInput(prev => ({ ...prev, [size]: Number(qty) }));
+    };
+
+    const handleSizePriceChange = (size: string, price: string) => {
+        setSizePriceInput(prev => ({ ...prev, [size]: Number(price) }));
     };
 
     const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, isAdditional = false) => { const file = e.target.files?.[0]; if (file) { const reader = new FileReader(); reader.onloadend = () => { if (isAdditional) { const currentImages = editProduct.images || []; setEditProduct(prev => ({...prev, images: [...currentImages, reader.result as string]})); } else { setEditProduct(prev => ({ ...prev, image: reader.result as string })); } }; reader.readAsDataURL(file); } }; 
@@ -867,7 +857,7 @@ const ProductManagerView = ({ setToast }: { setToast: (msg: string) => void }) =
     const handleBulkDelete = () => { setShowBulkConfirm(true); }; 
     const performBulkDelete = async () => { await bulkDeleteProducts(selectedProducts); setSelectedProducts([]); setToast(`${selectedProducts.length} Products Deleted`); setShowBulkConfirm(false); }; 
 
-    // --- CSV EXPORT HANDLER (Download All or Selected) ---
+    // --- CSV EXPORT HANDLER ---
     const handleExportCSV = () => {
         const productsToExport = selectedProducts.length > 0 ? products.filter(p => selectedProducts.includes(p.id)) : products;
         if (productsToExport.length === 0) { setToast('No products to export.'); return; }
@@ -944,16 +934,14 @@ const ProductManagerView = ({ setToast }: { setToast: (msg: string) => void }) =
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                         {filteredProducts.map(p => {
-                            // Logic: Check if total stock is low OR any single size variant is <= 10
                             const isLowStock = p.stock <= 10 || (p.sizeStock && Object.values(p.sizeStock).some(qty => Number(qty) <= 10));
-
                             return (
                             <tr key={p.id} className="hover:bg-gray-50">
                                 <td className="p-4"><input type="checkbox" checked={selectedProducts.includes(p.id)} onChange={() => toggleSelect(p.id)} /></td>
                                 <td className="p-4"><img src={p.image} alt="" className="w-12 h-16 object-cover rounded" /></td>
                                 <td className="p-4 font-medium text-navy-900">{p.name}</td>
                                 <td className="p-4 text-sm text-gray-500">{p.category} / {p.subCategory}</td>
-                                <td className="p-4 font-bold text-navy-900">₹{p.discountPrice || p.price}</td>
+                                <td className="p-4 font-bold text-navy-900">₹{p.price}</td>
                                 <td className="p-4">
                                     <span className={`px-2 py-1 rounded text-xs font-bold ${isLowStock ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
                                         {p.stock}
@@ -965,48 +953,61 @@ const ProductManagerView = ({ setToast }: { setToast: (msg: string) => void }) =
                     </tbody>
                 </table>
             </div>
-             {isModalOpen && (<div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"><div className="bg-white rounded-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto p-8 shadow-2xl"><div className="flex justify-between items-center mb-6 border-b pb-4"><h3 className="text-2xl font-serif font-bold text-navy-900">{editProduct.id ? 'Edit Product' : 'Add New Product'}</h3><button onClick={() => setIsModalOpen(false)}><X className="text-gray-400 hover:text-red-500" /></button></div>
+             {isModalOpen && (<div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"><div className="bg-white rounded-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto p-8 shadow-2xl"><div className="flex justify-between items-center mb-6 border-b pb-4"><h3 className="text-2xl font-serif font-bold text-navy-900">{editProduct.id ? 'Edit Product' : 'Add New Product'}</h3><button onClick={() => setIsModalOpen(false)}><X className="text-gray-400 hover:text-red-500" /></button></div>
              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                  <div className="md:col-span-2"><label className="text-xs font-bold uppercase text-gray-500">Product Name</label><input className="w-full border border-gray-300 p-3 rounded mt-1 bg-white text-navy-900 outline-none focus:border-navy-900" value={editProduct.name} onChange={e => setEditProduct({...editProduct, name: e.target.value})} /></div>
                  <div><label className="text-xs font-bold uppercase text-gray-500">Category</label><select className="w-full border border-gray-300 p-3 rounded mt-1 bg-white text-navy-900 outline-none focus:border-navy-900" value={editProduct.category} onChange={e => setEditProduct({...editProduct, category: e.target.value, subCategory: ''})}>{Object.keys(categories).map(c => <option key={c} value={c}>{c}</option>)}</select></div>
                  <div><label className="text-xs font-bold uppercase text-gray-500">Sub Category</label><select className="w-full border border-gray-300 p-3 rounded mt-1 bg-white text-navy-900 outline-none focus:border-navy-900" value={editProduct.subCategory} onChange={e => setEditProduct({...editProduct, subCategory: e.target.value})}><option value="">Select</option>{categories[editProduct.category!]?.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
-                 <div><label className="text-xs font-bold uppercase text-gray-500">Price</label><input type="number" className="w-full border border-gray-300 p-3 rounded mt-1 bg-white text-navy-900 outline-none focus:border-navy-900" value={editProduct.price} onChange={e => setEditProduct({...editProduct, price: Number(e.target.value)})} /></div>
+                 <div><label className="text-xs font-bold uppercase text-gray-500">Base Price</label><input type="number" className="w-full border border-gray-300 p-3 rounded mt-1 bg-white text-navy-900 outline-none focus:border-navy-900" value={editProduct.price} onChange={e => setEditProduct({...editProduct, price: Number(e.target.value)})} /></div>
                  <div><label className="text-xs font-bold uppercase text-gray-500">Discount Price</label><input type="number" className="w-full border border-gray-300 p-3 rounded mt-1 bg-white text-navy-900 outline-none focus:border-navy-900" value={editProduct.discountPrice || ''} onChange={e => setEditProduct({...editProduct, discountPrice: Number(e.target.value)})} /></div>
                  
-                {/* SIZE STOCK GRID */}
-                 <div className="md:col-span-2 bg-gray-50 p-4 rounded border border-gray-200">
-                     <label className="text-xs font-bold uppercase text-navy-900 mb-2 block">Size Inventory</label>
-                     <div className="grid grid-cols-4 gap-4">
+                 {/* SIZE STOCK & PRICE GRID */}
+                 <div className="md:col-span-2 bg-gray-50 p-6 rounded border border-gray-200">
+                     <label className="text-xs font-bold uppercase text-navy-900 mb-4 block">Size Inventory & Pricing (Optional Override)</label>
+                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-6">
                          {AVAILABLE_SIZES.map(size => (
-                             <div key={size}>
-                                 <label className="block text-[10px] uppercase text-gray-500 mb-1">{size}</label>
-                                 <input 
-                                    type="number" 
-                                    className="w-full border border-gray-300 p-2 rounded text-center text-navy-900" 
-                                    value={sizeStockInput[size] || ''} 
-                                    placeholder="0"
-                                    onChange={(e) => handleSizeStockChange(size, e.target.value)}
-                                 />
+                             <div key={size} className="bg-white p-3 rounded border border-gray-100">
+                                 <label className="block text-sm font-bold text-navy-900 mb-2 border-b pb-1">{size}</label>
+                                 <div className="space-y-2">
+                                     <div>
+                                        <label className="text-[9px] uppercase text-gray-400">Stock</label>
+                                        <input 
+                                            type="number" 
+                                            className="w-full border border-gray-200 p-1 text-sm text-center text-navy-900 outline-none focus:border-navy-900" 
+                                            value={sizeStockInput[size] || ''} 
+                                            placeholder="0"
+                                            onChange={(e) => handleSizeStockChange(size, e.target.value)}
+                                        />
+                                     </div>
+                                     <div>
+                                        <label className="text-[9px] uppercase text-gray-400">Price (₹)</label>
+                                        <input 
+                                            type="number" 
+                                            className="w-full border border-gray-200 p-1 text-sm text-center text-green-700 font-medium outline-none focus:border-green-600" 
+                                            value={sizePriceInput[size] || ''} 
+                                            placeholder="Base"
+                                            onChange={(e) => handleSizePriceChange(size, e.target.value)}
+                                        />
+                                     </div>
+                                 </div>
                              </div>
                          ))}
                      </div>
-                     <p className="text-[10px] text-gray-400 mt-2 text-right">
+                     <p className="text-[10px] text-gray-400 mt-4 text-right">
                         Total Stock: {Object.values(sizeStockInput).reduce((a: number, b: any) => a + Number(b), 0)}
                      </p>
                  </div>
 
-                 <div><label className="text-xs font-bold uppercase text-gray-500">Material</label><input className="w-full border border-gray-300 p-3 rounded mt-1 bg-white text-navy-900 outline-none focus:border-navy-900" value={editProduct.material} onChange={e => setEditProduct({...editProduct, material: e.target.value})} /></div>
+                 <div className="md:col-span-2"><label className="text-xs font-bold uppercase text-gray-500">Material</label><input className="w-full border border-gray-300 p-3 rounded mt-1 bg-white text-navy-900 outline-none focus:border-navy-900" value={editProduct.material} onChange={e => setEditProduct({...editProduct, material: e.target.value})} /></div>
                  
                  <div className="md:col-span-2"><label className="text-xs font-bold uppercase text-gray-500">Main Image</label><div className="flex gap-4 mt-1 items-start"><div className="flex-1"><div className="flex gap-2 mb-2"><input type="text" className="flex-1 border border-gray-300 p-3 rounded bg-white text-navy-900 outline-none focus:border-navy-900" value={editProduct.image} onChange={e => setEditProduct({...editProduct, image: e.target.value})} placeholder="Image URL" /><button onClick={() => fileInputRef.current?.click()} className="px-4 bg-gray-100 rounded border border-gray-300 hover:bg-gray-200 text-gray-600"><Upload size={20}/></button></div><input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={e => handleImageUpload(e, false)} /></div>{editProduct.image && (<div className="w-20 h-20 border rounded overflow-hidden flex-shrink-0"><img src={editProduct.image} alt="Main" className="w-full h-full object-cover" /></div>)}</div></div>
                  <div className="md:col-span-2"><label className="text-xs font-bold uppercase text-gray-500 mb-2 block">Additional Images</label><div className="grid grid-cols-4 gap-4 mb-4">{editProduct.images && editProduct.images.map((img, idx) => (<div key={idx} className="relative group border rounded overflow-hidden aspect-square"><img src={img} className="w-full h-full object-cover" alt={`Sub ${idx}`} /><button onClick={() => removeAdditionalImage(idx)} className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"><X size={12} /></button></div>))}</div><div className="flex gap-2 items-center"><input type="text" className="flex-1 border border-gray-300 p-3 rounded bg-white text-navy-900 outline-none focus:border-navy-900" value={newImageUrl} onChange={e => setNewImageUrl(e.target.value)} placeholder="Add Image URL" /><button onClick={() => additionalImageInputRef.current?.click()} className="px-4 py-3 bg-gray-100 rounded border border-gray-300 hover:bg-gray-200 text-gray-600"><Upload size={20}/></button><button onClick={addAdditionalImage} className="px-4 py-3 bg-navy-900 text-white rounded font-bold uppercase text-xs">Add</button><input type="file" ref={additionalImageInputRef} className="hidden" accept="image/*" onChange={e => handleImageUpload(e, true)} /></div></div>
-                 
                  <div className="md:col-span-2"><label className="text-xs font-bold uppercase text-gray-500">Description</label><textarea className="w-full border border-gray-300 p-3 rounded mt-1 h-24 bg-white text-navy-900 outline-none focus:border-navy-900" value={editProduct.description} onChange={e => setEditProduct({...editProduct, description: e.target.value})} /></div>
              </div><div className="flex justify-end gap-4 mt-8 pt-6 border-t border-gray-100"><button onClick={() => setIsModalOpen(false)} className="px-6 py-3 border border-gray-300 rounded text-gray-600 bg-white font-bold uppercase text-xs tracking-wider hover:bg-gray-50">Cancel</button><button onClick={handleSave} className="px-8 py-3 bg-navy-900 text-white rounded font-bold uppercase text-xs tracking-wider hover:bg-gold-600 shadow-lg">Save Product</button></div></div></div>)}<ConfirmModal isOpen={!!deleteConfirm} title="Delete Product?" message="This action cannot be undone." onConfirm={async () => { if(deleteConfirm) await deleteProduct(deleteConfirm); setDeleteConfirm(null); }} onCancel={() => setDeleteConfirm(null)} /><ConfirmModal isOpen={showBulkConfirm} title="Delete Multiple Products?" message={`Are you sure you want to delete ${selectedProducts.length} selected products? This action cannot be undone.`} onConfirm={performBulkDelete} onCancel={() => setShowBulkConfirm(false)} />
         </div>
     ); 
 };
 
-// --- UPDATED PDF INVOICE (Fixed X Position) ---
 const InvoiceTemplate = ({ order, globalSettings, contactContent, onClose }: { order: Order, globalSettings: any, contactContent: ContactContent, onClose: () => void }) => {
     const subtotal = order.items.reduce((acc, item) => acc + (item.discountPrice || item.price) * item.quantity, 0);
 
@@ -1050,7 +1051,6 @@ const InvoiceTemplate = ({ order, globalSettings, contactContent, onClose }: { o
     );
 };
 
-// --- UPDATED PACKING SLIP ---
 const PackingSlipTemplate = ({ order, globalSettings, onClose }: { order: Order, globalSettings: any, onClose: () => void }) => (
     <div className="fixed inset-0 bg-black/80 z-[100] overflow-y-auto flex items-center justify-center p-4 print:p-0 print:bg-white print:static print:block">
         <style>{`@media print { body { visibility: hidden; } .packing-modal { visibility: visible; position: absolute; left: 0; top: 0; width: 100%; margin: 0; padding: 20px; background: white; z-index: 9999; border: none; box-shadow: none; } .packing-modal * { visibility: visible; } .no-print { display: none !important; } @page { size: A5; margin: 0; } }`}</style>
@@ -1065,7 +1065,7 @@ const PackingSlipTemplate = ({ order, globalSettings, onClose }: { order: Order,
     </div>
 );
 
-// --- ORDER MANAGER (With Filters & Custom Delete Modal & NOTES DISPLAY) ---
+// --- ORDER MANAGER ---
 const OrderManagerView = ({ setToast }: { setToast: (msg: string) => void }) => {
     const { orders, updateOrderStatus, cancelOrder, deleteOrder, globalSettings, contactContent } = useCMS();
     const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
@@ -1179,7 +1179,7 @@ const OrderManagerView = ({ setToast }: { setToast: (msg: string) => void }) => 
 const Admin: React.FC = () => {
   const { isAuthenticated, isAdmin, logout } = useAuth();
   const { globalSettings } = useCMS();
-  const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
+  const [activeTab, setActiveTab] = useState<any>('dashboard');
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const navigate = useNavigate();
@@ -1193,7 +1193,7 @@ const Admin: React.FC = () => {
        <div className={`fixed md:static inset-y-0 left-0 w-64 bg-navy-900 text-white h-full flex-shrink-0 flex flex-col shadow-2xl z-40 no-print transition-transform duration-300 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
           <div className="p-8 border-b border-white/10 flex-shrink-0 hidden md:block"><h2 className="text-2xl font-serif font-bold text-gold-500 tracking-wide">{globalSettings.siteName}</h2><p className="text-sm tracking-[0.2em] text-gray-400 mt-2">Admin Console</p></div>
           <div className="p-4 flex justify-between items-center md:hidden border-b border-white/10"><span className="font-serif font-bold text-gold-500">Menu</span><button onClick={() => setIsSidebarOpen(false)}><X size={24} /></button></div>
-          <nav className="p-4 space-y-2 flex-1 overflow-y-auto custom-scrollbar">{[{ id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard }, { id: 'global', label: 'Global Settings', icon: Globe }, { id: 'home', label: 'Home Content', icon: FileText }, { id: 'about', label: 'About Content', icon: FileText }, { id: 'contact', label: 'Contact Content', icon: FileText }, { id: 'categories', label: 'Categories', icon: Layers }, { id: 'products', label: 'Products', icon: Package }, { id: 'users', label: 'Users', icon: Users }, { id: 'orders', label: 'Orders', icon: ShoppingCart }, { id: 'reviews', label: 'Reviews', icon: MessageSquare }, { id: 'settings', label: 'Admin Access', icon: Settings }].map((item) => (<button key={item.id} onClick={() => { setActiveTab(item.id as AdminTab); setIsSidebarOpen(false); }} className={`w-full flex items-center p-4 rounded-lg transition-all duration-300 font-medium ${activeTab === item.id ? 'bg-white text-navy-900 shadow-lg transform scale-105' : 'hover:bg-white/5 text-gray-400 hover:text-white'}`}><item.icon size={18} className={`mr-3 ${activeTab === item.id ? 'text-gold-600' : 'text-gray-400'}`} /> <span className="tracking-wide text-sm">{item.label}</span></button>))}</nav>
+          <nav className="p-4 space-y-2 flex-1 overflow-y-auto custom-scrollbar">{[{ id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard }, { id: 'global', label: 'Global Settings', icon: Globe }, { id: 'home', label: 'Home Content', icon: FileText }, { id: 'about', label: 'About Content', icon: FileText }, { id: 'contact', label: 'Contact Content', icon: FileText }, { id: 'categories', label: 'Categories', icon: Layers }, { id: 'products', label: 'Products', icon: Package }, { id: 'users', label: 'Users', icon: Users }, { id: 'orders', label: 'Orders', icon: ShoppingCart }, { id: 'reviews', label: 'Reviews', icon: MessageSquare }, { id: 'settings', label: 'Admin Access', icon: Settings }].map((item) => (<button key={item.id} onClick={() => { setActiveTab(item.id); setIsSidebarOpen(false); }} className={`w-full flex items-center p-4 rounded-lg transition-all duration-300 font-medium ${activeTab === item.id ? 'bg-white text-navy-900 shadow-lg transform scale-105' : 'hover:bg-white/5 text-gray-400 hover:text-white'}`}><item.icon size={18} className={`mr-3 ${activeTab === item.id ? 'text-gold-600' : 'text-gray-400'}`} /> <span className="tracking-wide text-sm">{item.label}</span></button>))}</nav>
           <div className="p-4 border-t border-white/10 flex-shrink-0 space-y-2"><button onClick={() => navigate('/')} className="w-full flex items-center p-3 rounded hover:bg-navy-800 text-gold-400 transition-colors font-bold text-xs uppercase tracking-wider"><ArrowLeft size={18} className="mr-3" /> Back to Website</button><button onClick={logout} className="w-full flex items-center p-3 rounded hover:bg-red-900/30 text-red-300 transition-colors"><LogOut size={18} className="mr-3" /> Logout</button></div>
        </div>
        <div className="flex-1 p-4 pt-20 md:p-10 md:pt-10 overflow-y-auto h-full relative w-full">

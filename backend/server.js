@@ -18,25 +18,20 @@ require('dotenv').config();
 
 const app = express();
 
-// --- SMART CORS SETUP (Works for Local & Live) ---
 const allowedOrigins = [
-    'https://neelafashion.com',       // Live Frontend
-    'https://www.neelafashion.com',   // Live WWW
-    'http://localhost:5173',          // Local Vite Frontend
-    'http://localhost:3000',          // Alternative Local
-    'http://127.0.0.1:5173'           // IP based Local
+    'https://neelafashion.com',
+    'https://www.neelafashion.com', 
+    'http://localhost:5173',
+    'http://localhost:3000',
+    'http://127.0.0.1:5173'
 ];
 
 app.use(cors({
     origin: function (origin, callback) {
-        // Allow requests with no origin (like mobile apps, curl requests)
         if (!origin) return callback(null, true);
-        
         if (allowedOrigins.indexOf(origin) !== -1) {
             return callback(null, true);
         } else {
-            // Optional: Log blocked origins for debugging
-            console.log("Blocked CORS Origin:", origin);
             return callback(new Error('CORS Policy Violation'), false);
         }
     },
@@ -44,13 +39,11 @@ app.use(cors({
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
 }));
 
-// Payload Limit
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-// Root Route
 app.get('/', (req, res) => {
-    res.send('Neela Fashion API is Running! (Local & Production Ready) 🚀');
+    res.send('Neela Fashion API is Running! 🚀');
 });
 
 // --- AUTH ROUTES ---
@@ -90,6 +83,7 @@ app.post('/api/login', async (req, res) => {
                 phone: user.phone,
                 address: user.address,
                 city: user.city,
+                district: user.district,
                 state: user.state,
                 pincode: user.pincode,
                 joinDate: user.createdAt
@@ -172,14 +166,38 @@ app.put('/api/products/:id', async (req, res) => {
     catch (error) { res.status(500).json({ success: false }); }
 });
 
+// --- FIXED DELETE LOGIC ---
 app.delete('/api/products/:id', async (req, res) => {
-    try { await Product.destroy({ where: { id: req.params.id } }); res.json({ success: true, message: 'Deleted!' }); } 
-    catch (error) { res.status(500).json({ success: false }); }
+    try {
+        // 1. First Delete from Cart (Foreign Key Fix)
+        await Cart.destroy({ where: { productId: req.params.id } });
+        
+        // 2. Then Delete Product
+        await Product.destroy({ where: { id: req.params.id } });
+        
+        res.json({ success: true, message: 'Deleted!' });
+    } 
+    catch (error) { 
+        console.error("Delete Error:", error);
+        res.status(500).json({ success: false }); 
+    }
 });
 
+// --- FIXED BULK DELETE LOGIC ---
 app.post('/api/products/bulk-delete', async (req, res) => {
-    try { await Product.destroy({ where: { id: req.body.ids } }); res.json({ success: true, message: 'Deleted!' }); } 
-    catch (error) { res.status(500).json({ success: false }); }
+    try { 
+        // 1. Delete all selected products from Cart first
+        await Cart.destroy({ where: { productId: req.body.ids } });
+
+        // 2. Then Delete Products
+        await Product.destroy({ where: { id: req.body.ids } }); 
+        
+        res.json({ success: true, message: 'Deleted!' }); 
+    } 
+    catch (error) { 
+        console.error("Bulk Delete Error:", error);
+        res.status(500).json({ success: false }); 
+    }
 });
 
 // --- CART ROUTES ---
@@ -242,6 +260,7 @@ app.post('/api/orders', async (req, res) => {
         const orderData = req.body;
         const newOrder = await Order.create(orderData);
         
+        // Stock Reduction Logic
         if (orderData.items && Array.isArray(orderData.items)) {
             for (const item of orderData.items) {
                 const product = await Product.findByPk(item.id);
@@ -262,10 +281,7 @@ app.post('/api/orders', async (req, res) => {
                 }
             }
         }
-
-        if(orderData.billingDetails && orderData.billingDetails.email) {
-             sendCustomerStatusEmail(orderData.billingDetails.email, orderData.userName, newOrder.id, "Received");
-        }
+        
         sendAdminNotification(orderData, newOrder.id);
 
         res.json({ success: true, order: newOrder, message: 'Order Placed Successfully!' });
@@ -368,8 +384,6 @@ app.put('/api/cms/contact', async (req, res) => { try { const [u] = await CMS.up
 app.post('/api/payment/pay', initiatePayment);
 app.post('/api/payment/status/:orderId', checkStatus);
 
-// Server Start
-// Sofyhost (cPanel) environment variable sets the PORT
 const PORT = process.env.PORT || 5000;
 
 const startServer = async () => {

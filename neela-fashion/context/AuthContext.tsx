@@ -2,6 +2,9 @@ import React, { createContext, useContext, useState, ReactNode, useEffect } from
 import { User } from '../types';
 import toast from 'react-hot-toast';
 
+// --- CHANGE HERE: Get API URL from Environment Variable ---
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+
 interface AuthContextType {
   user: User | null;
   login: (email: string, pass: string) => Promise<boolean>;
@@ -25,7 +28,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const login = async (email: string, pass: string): Promise<boolean> => {
     setIsLoading(true);
     try {
-      const response = await fetch('http://localhost:5000/api/login', {
+      // --- CHANGE HERE: Use Dynamic URL ---
+      const response = await fetch(`${API_URL}/api/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -50,7 +54,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     } catch (error) {
       console.error("Login API Error:", error);
-      toast.error("Unable to connect to server. Is Backend running?", { icon: '🔌' });
+      toast.error("Unable to connect to server. Check internet connection.", { icon: '🔌' });
       setIsLoading(false);
       return false;
     }

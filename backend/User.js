@@ -1,6 +1,6 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('./database');
-const bcrypt = require('bcryptjs'); // Import bcrypt
+const bcrypt = require('bcryptjs');
 
 const User = sequelize.define('User', {
     id: {
@@ -23,42 +23,59 @@ const User = sequelize.define('User', {
     },
     role: {
         type: DataTypes.STRING,
-        defaultValue: 'user' // 'admin' or 'user'
+        defaultValue: 'user'
     },
     isActive: {
         type: DataTypes.BOOLEAN,
         defaultValue: true
     },
-    // Extra profile fields
+    // Profile Fields
     phone: DataTypes.STRING,
     address: DataTypes.STRING,
     city: DataTypes.STRING,
+    district: DataTypes.STRING, // NEW: District Field
     state: DataTypes.STRING,
     pincode: DataTypes.STRING
 });
 
-// Function to seed Admin User
 const seedAdmin = async () => {
     try {
-        await User.sync(); // Table create pannum if not exists
+        // CORRECTION: Removed { alter: true } to prevent TiDB Unique Constraint Error
+        await User.sync(); 
         
+        // --- MANUAL COLUMN MIGRATION FOR TIDB ---
+        // This safely adds 'district' column if it's missing, without touching 'email'
+        try {
+            const [results] = await sequelize.query(
+                "SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Users' AND COLUMN_NAME = 'district' AND TABLE_SCHEMA = DATABASE()"
+            );
+            
+            if (results.length === 0) {
+                console.log('⚙️ Adding missing "district" column...');
+                await sequelize.query("ALTER TABLE Users ADD COLUMN district VARCHAR(255)");
+                console.log('✅ "district" column added successfully!');
+            }
+        } catch (colError) {
+            // Ignore error if column check fails (likely exists)
+            console.log('ℹ️ Table check passed.');
+        }
+        // ----------------------------------------
+
         const adminEmail = 'neelafashion@gmail.com';
         const plainPass = 'admin-neela';
 
         const adminExists = await User.findOne({ where: { email: adminEmail } });
 
         if (!adminExists) {
-            // Hash the admin password before saving
             const hashedPassword = await bcrypt.hash(plainPass, 10);
-
             await User.create({
                 name: 'Neela Admin',
                 email: adminEmail,
-                password: hashedPassword, // Storing Hashed Password
+                password: hashedPassword,
                 role: 'admin',
                 isActive: true
             });
-            console.log('✅ Admin User Created Automatically with Hashed Password!');
+            console.log('✅ Admin User Created!');
         } else {
             console.log('ℹ️ Admin User already exists.');
         }

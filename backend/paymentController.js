@@ -1,17 +1,16 @@
 const crypto = require('crypto');
 const axios = require('axios');
 const { Order } = require('./Order');
+const { sendCustomerStatusEmail } = require('./emailService'); // Import Email Service
 require('dotenv').config();
 
-// --- LOAD CREDENTIALS FROM ENV (NO HARDCODING) ---
 const MERCHANT_ID = process.env.PHONEPE_MERCHANT_ID;
 const SALT_KEY = process.env.PHONEPE_SALT_KEY;
 const SALT_INDEX = process.env.PHONEPE_SALT_INDEX || 1;
-const PHONEPE_HOST_URL = process.env.PHONEPE_HOST_URL || "https://api.phonepe.com/apis/hermes"; // Production URL Default
+const PHONEPE_HOST_URL = process.env.PHONEPE_HOST_URL || "https://api.phonepe.com/apis/hermes";
 const BACKEND_URL = process.env.BACKEND_URL;
 const FRONTEND_URL = process.env.FRONTEND_URL;
 
-// --- PAYMENT INITIATE ---
 const initiatePayment = async (req, res) => {
     try {
         const { orderId, amount, userId, mobileNumber } = req.body;
@@ -24,12 +23,11 @@ const initiatePayment = async (req, res) => {
             return res.status(400).json({ success: false, message: "Order ID or Amount missing" });
         }
 
-        // Production Payload
         const data = {
             merchantId: MERCHANT_ID,
             merchantTransactionId: orderId,
             merchantUserId: userId || "GUEST",
-            amount: Math.round(Number(amount) * 100), // Convert to Paise
+            amount: Math.round(Number(amount) * 100),
             redirectUrl: `${BACKEND_URL}/api/payment/status/${orderId}`,
             redirectMode: "POST",
             callbackUrl: `${BACKEND_URL}/api/payment/callback`,
@@ -39,16 +37,12 @@ const initiatePayment = async (req, res) => {
             }
         };
 
-        // --- CHECKSUM GENERATION ---
         const payload = JSON.stringify(data);
         const payloadMain = Buffer.from(payload).toString('base64');
-
-        // Formula: Base64 + Endpoint + SaltKey
         const stringToHash = payloadMain + "/pg/v1/pay" + SALT_KEY;
         const sha256 = crypto.createHash('sha256').update(stringToHash).digest('hex');
         const checksum = sha256 + "###" + SALT_INDEX;
 
-        // --- SEND REQUEST TO PHONEPE LIVE SERVER ---
         const options = {
             method: 'POST',
             url: `${PHONEPE_HOST_URL}/pg/v1/pay`,
@@ -70,7 +64,7 @@ const initiatePayment = async (req, res) => {
                 url: response.data.data.instrumentResponse.redirectInfo.url 
             });
         } else {
-            console.error("❌ PhonePe Production Error:", JSON.stringify(response.data));
+            console.error("❌ PhonePe Error:", JSON.stringify(response.data));
             res.status(400).json({ success: false, message: 'Payment Failed', details: response.data });
         }
 
@@ -80,7 +74,6 @@ const initiatePayment = async (req, res) => {
     }
 };
 
-// --- CHECK STATUS ---
 const checkStatus = async (req, res) => {
     const { orderId } = req.params;
 
@@ -107,7 +100,22 @@ const checkStatus = async (req, res) => {
                 { status: 'Processing', paymentMethod: 'Prepaid (PhonePe)' }, 
                 { where: { id: orderId } }
             );
-            // Redirect to Live Frontend
+
+            // --- CORRECTION: SEND EMAIL ONLY HERE (ON SUCCESS) ---
+            const order = await Order.findByPk(orderId);
+            if (order) {
+                let email = null;
+                let name = order.userName;
+                if (order.billingDetails) {
+                    if (typeof order.billingDetails === 'object') email = order.billingDetails.email;
+                    else if (typeof order.billingDetails === 'string') {
+                        try { const details = JSON.parse(order.billingDetails); email = details.email; } catch (e) {}
+                    }
+                }
+                // Send "Received" email now that payment is confirmed
+                if (email) sendCustomerStatusEmail(email, name, orderId, "Received");
+            }
+
             return res.redirect(`${FRONTEND_URL}/#/order-success?id=${orderId}&status=success`);
         } else {
             await Order.update(

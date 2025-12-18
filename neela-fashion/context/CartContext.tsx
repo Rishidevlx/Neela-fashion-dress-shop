@@ -4,6 +4,8 @@ import { useAuth } from './AuthContext';
 import { useCMS } from './CMSContext';
 import toast from 'react-hot-toast';
 
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+
 interface CartContextType {
   cart: CartItem[];
   addToCart: (product: Product, quantity: number, selectedImage?: string, selectedSize?: string) => void;
@@ -24,32 +26,35 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [cart, setCart] = useState<CartItem[]>([]);
 
   useEffect(() => {
-    if (isAuthenticated && user) {
-        fetchCartFromDB(user.id);
-    } else {
-        const saved = localStorage.getItem('neela_cart');
-        if (saved) setCart(JSON.parse(saved));
-        else setCart([]);
-    }
+    if (isAuthenticated && user) fetchCartFromDB(user.id);
+    else { const saved = localStorage.getItem('neela_cart'); if (saved) setCart(JSON.parse(saved)); }
   }, [isAuthenticated, user]);
 
-  useEffect(() => {
-    if (!isAuthenticated) {
-        localStorage.setItem('neela_cart', JSON.stringify(cart));
-    }
-  }, [cart, isAuthenticated]);
+  useEffect(() => { if (!isAuthenticated) localStorage.setItem('neela_cart', JSON.stringify(cart)); }, [cart, isAuthenticated]);
 
   const fetchCartFromDB = async (userId: string) => {
       try {
-          const res = await fetch(`http://localhost:5000/api/cart/${userId}`);
+          const res = await fetch(`${API_URL}/api/cart/${userId}`);
           const data = await res.json();
           if (data.success) {
-              const mappedCart = data.cart.map((item: any) => ({
-                  ...item.Product,
-                  image: item.selectedImage || item.Product.image,
-                  quantity: item.quantity,
-                  selectedSize: item.selectedSize // Map size from DB
-              }));
+              const mappedCart = data.cart.map((item: any) => {
+                  // Reconstruct correct price based on size logic
+                  const prod = item.Product;
+                  const size = item.selectedSize;
+                  let finalPrice = prod.discountPrice || prod.price;
+                  if (size && prod.sizePrices && prod.sizePrices[size]) {
+                      finalPrice = prod.sizePrices[size];
+                  }
+
+                  return {
+                      ...prod,
+                      price: finalPrice, // Override price for display
+                      discountPrice: undefined, // Clear discount so calculation is simple
+                      image: item.selectedImage || prod.image,
+                      quantity: item.quantity,
+                      selectedSize: size 
+                  };
+              });
               setCart(mappedCart);
           }
       } catch (error) { console.error("Fetch Cart Error", error); }
@@ -59,23 +64,36 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const imageToUse = selectedImage || product.image;
     const updatedCart = [...cart];
     
-    // Unique ID = ProductID + Size
-    const existingIndex = updatedCart.findIndex(item => 
-        item.id === product.id && item.selectedSize === selectedSize
-    );
+    // Check if price needs adjustment based on size
+    let priceToUse = product.price;
+    if (selectedSize && product.sizePrices && product.sizePrices[selectedSize]) {
+        priceToUse = product.sizePrices[selectedSize];
+    }
+
+    // Object to store in cart (with specific price)
+    const cartProduct = { 
+        ...product, 
+        price: priceToUse, 
+        discountPrice: undefined, // Ensure we use the resolved price
+        image: imageToUse, 
+        quantity, 
+        selectedSize 
+    };
+
+    const existingIndex = updatedCart.findIndex(item => item.id === product.id && item.selectedSize === selectedSize);
 
     if (existingIndex > -1) {
         updatedCart[existingIndex].quantity += quantity;
         updatedCart[existingIndex].image = imageToUse; 
     } else {
-        updatedCart.push({ ...product, image: imageToUse, quantity, selectedSize });
+        updatedCart.push(cartProduct);
     }
     setCart(updatedCart);
     toast.success("Added to Bag!");
 
     if (isAuthenticated && user) {
         try {
-            await fetch('http://localhost:5000/api/cart/add', {
+            await fetch(`${API_URL}/api/cart/add`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ userId: user.id, productId: product.id, quantity, selectedImage: imageToUse, selectedSize })
@@ -89,7 +107,7 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     toast.success("Removed from Bag");
     if (isAuthenticated && user) {
         try {
-            await fetch('http://localhost:5000/api/cart/remove', {
+            await fetch(`${API_URL}/api/cart/remove`, {
                 method: 'DELETE',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ userId: user.id, productId, selectedSize })
@@ -103,7 +121,7 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setCart(prev => prev.map(item => (item.id === productId && item.selectedSize === selectedSize) ? { ...item, quantity } : item));
     if (isAuthenticated && user) {
         try {
-            await fetch('http://localhost:5000/api/cart/update', {
+            await fetch(`${API_URL}/api/cart/update`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ userId: user.id, productId, quantity, selectedSize })
@@ -115,16 +133,12 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const clearCart = async () => {
     setCart([]);
     if (isAuthenticated && user) {
-        try { await fetch(`http://localhost:5000/api/cart/clear/${user.id}`, { method: 'DELETE' }); } 
+        try { await fetch(`${API_URL}/api/cart/clear/${user.id}`, { method: 'DELETE' }); } 
         catch (error) { console.error("Clear Cart API Error", error); }
     } else { localStorage.removeItem('neela_cart'); }
   };
 
-  const cartTotal = cart.reduce((total, item) => {
-    const price = item.discountPrice || item.price;
-    return total + (price * item.quantity);
-  }, 0);
-
+  const cartTotal = cart.reduce((total, item) => total + (item.price * item.quantity), 0);
   const taxRate = globalSettings?.taxRate || 0;
   const taxAmount = (cartTotal * taxRate) / 100;
   const finalTotal = cartTotal + taxAmount;

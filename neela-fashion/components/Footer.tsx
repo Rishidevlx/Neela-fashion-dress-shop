@@ -8,9 +8,8 @@ const Footer: React.FC = () => {
 
   return (
     <footer className="bg-navy-900 text-white pt-16 pb-24 md:pb-8"> 
-      {/* Added pb-24 on mobile to give space for floating icons if needed, md:pb-8 for desktop */}
       <div className="container mx-auto px-4 md:px-8">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-12">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
           
           {/* Brand */}
           <div>
@@ -34,25 +33,18 @@ const Footer: React.FC = () => {
             </div>
           </div>
 
-          {/* Quick Links */}
+          {/* Quick Links & Legal (CORRECTED ORDER) */}
           <div>
-            <h3 className="text-lg font-semibold mb-6 text-gold-500">Quick Links</h3>
+            <h3 className="text-lg font-semibold mb-6 text-gold-500">Links & Policies</h3>
             <ul className="space-y-3">
               <li><Link to="/" className="text-gray-400 hover:text-white text-sm transition-colors">Home</Link></li>
               <li><Link to="/shop" className="text-gray-400 hover:text-white text-sm transition-colors">Shop Collection</Link></li>
               <li><Link to="/about" className="text-gray-400 hover:text-white text-sm transition-colors">Our Story</Link></li>
-              <li><Link to="/contact" className="text-gray-400 hover:text-white text-sm transition-colors">Contact Us</Link></li>
-            </ul>
-          </div>
-
-          {/* Categories */}
-          <div>
-            <h3 className="text-lg font-semibold mb-6 text-gold-500">Top Categories</h3>
-            <ul className="space-y-3">
-              <li><Link to="/shop?category=Saree" className="text-gray-400 hover:text-white text-sm transition-colors">Sarees</Link></li>
-              <li><Link to="/shop?category=Kurtis Collections" className="text-gray-400 hover:text-white text-sm transition-colors">Kurtis</Link></li>
-              <li><Link to="/shop?category=Nighty" className="text-gray-400 hover:text-white text-sm transition-colors">Nightwear</Link></li>
-              <li><Link to="/shop?category=Bottom Wear" className="text-gray-400 hover:text-white text-sm transition-colors">Bottom Wear</Link></li>
+              
+              {/* NEW ORDER: Terms -> Privacy -> Refund */}
+              <li><Link to="/terms" className="text-gray-400 hover:text-white text-sm transition-colors">Terms & Conditions</Link></li>
+              <li><Link to="/privacy-policy" className="text-gray-400 hover:text-white text-sm transition-colors">Privacy Policy</Link></li>
+              <li><Link to="/returns" className="text-gray-400 hover:text-gold-400 text-sm transition-colors flex items-center gap-2">Refund & Return Policy <span className="text-[9px] bg-gold-600/20 text-gold-500 px-1 rounded border border-gold-600/30">Info</span></Link></li>
             </ul>
           </div>
 
@@ -76,12 +68,12 @@ const Footer: React.FC = () => {
           </div>
         </div>
 
-        {/* Updated Copyright & Developer Credit Section - CENTERED */}
+        {/* Updated Copyright */}
         <div className="border-t border-gray-800 mt-12 pt-8 flex flex-col md:flex-row justify-center items-center text-center text-gray-500 text-sm gap-4 md:gap-8">
           <p>
             &copy; {new Date().getFullYear()} {globalSettings.siteName}. All rights reserved.
           </p>
-          <span className="hidden md:block text-gray-700">|</span> {/* Divider for desktop */}
+          <span className="hidden md:block text-gray-700">|</span>
           <p>
             Developed By{' '}
             <a 

@@ -3,11 +3,10 @@ import { useCart } from '../context/CartContext';
 import { useCMS } from '../context/CMSContext';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { Lock, CheckCircle, Save, Smartphone, Banknote } from 'lucide-react';
+import { Lock, CheckCircle, Save, Smartphone } from 'lucide-react';
 import { ShippingDetails, INDIAN_STATES, Order } from '../types';
 import toast from 'react-hot-toast';
 
-// Use Environment Variable for API URL
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 const AddressFormFields = ({ form, onChange, disabled }: { form: ShippingDetails, onChange: (e: any) => void, disabled: boolean }) => (
@@ -25,15 +24,15 @@ const AddressFormFields = ({ form, onChange, disabled }: { form: ShippingDetails
 );
 
 const Checkout: React.FC = () => {
-  const { cart, cartTotal, taxAmount, clearCart } = useCart();
+  const { cart, cartTotal, taxAmount } = useCart();
   const { shippingRules, addOrder, globalSettings, updateUserProfile, users } = useCMS(); 
   const { user, isAuthenticated } = useAuth();
-  const navigate = useNavigate();
   
   const [loading, setLoading] = useState(false);
   const [calculatedShipping, setCalculatedShipping] = useState(0);
   const [isAddressSaved, setIsAddressSaved] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<'Prepaid' | 'COD'>('Prepaid');
+  // Default to Prepaid, removed COD state toggle logic
+  const paymentMethod = 'Prepaid';
   const [sameAsBilling, setSameAsBilling] = useState(true);
   const [saveAddressForNextTime, setSaveAddressForNextTime] = useState(false);
   const [orderNotes, setOrderNotes] = useState('');
@@ -56,6 +55,7 @@ const Checkout: React.FC = () => {
                   phone: freshUser.phone || '',
                   address: freshUser.address || '',
                   city: freshUser.city || '',
+                  district: freshUser.district || '', // FIX: Loading district correctly
                   state: freshUser.state || 'Tamil Nadu',
                   pincode: freshUser.pincode || ''
               }));
@@ -131,7 +131,12 @@ const Checkout: React.FC = () => {
       calculateShippingCost(); 
       if (saveAddressForNextTime && isAuthenticated && user) {
           updateUserProfile(user.id, {
-              address: billingForm.address, city: billingForm.city, state: billingForm.state, pincode: billingForm.pincode, phone: billingForm.phone
+              address: billingForm.address, 
+              city: billingForm.city, 
+              district: billingForm.district, // FIX: Saving district
+              state: billingForm.state, 
+              pincode: billingForm.pincode, 
+              phone: billingForm.phone
           });
       }
   };
@@ -150,49 +155,42 @@ const Checkout: React.FC = () => {
         date: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }),
         total: Number(finalPayable.toFixed(2)),
         status: 'Pending',
-        paymentMethod: paymentMethod === 'COD' ? 'COD' : 'Prepaid',
+        paymentMethod: 'Prepaid',
         items: cart,
         billingDetails: billingForm,
         shippingDetails: shippingForm,
         notes: orderNotes
     };
 
+    // Save order to DB (No email sent here)
     await addOrder(newOrder);
 
-    if (paymentMethod === 'COD') {
-        setLoading(false);
-        clearCart();
-        navigate('/order-success', { 
-            state: { orderId, total: finalPayable.toFixed(2), items: cart, billing: billingForm, shipping: shippingForm } 
+    // --- INITIATE REAL PAYMENT ---
+    try {
+        const response = await fetch(`${API_URL}/api/payment/pay`, { 
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                orderId: orderId,
+                amount: finalPayable, 
+                userId: user?.id || 'GUEST',
+                mobileNumber: billingForm.phone
+            })
         });
-    } else {
-        // --- INITIATE REAL PAYMENT ---
-        try {
-            const response = await fetch(`${API_URL}/api/payment/pay`, { // Using Dynamic URL
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    orderId: orderId,
-                    amount: finalPayable, // Total Amount
-                    userId: user?.id || 'GUEST',
-                    mobileNumber: billingForm.phone
-                })
-            });
 
-            const data = await response.json();
+        const data = await response.json();
 
-            if (data.success && data.url) {
-                // Redirect to PhonePe Gateway
-                window.location.href = data.url; 
-            } else {
-                toast.error("Payment Initiation Failed. Try COD.");
-                setLoading(false);
-            }
-        } catch (error) {
-            console.error("Payment Error", error);
-            toast.error("Server Error in Payment");
+        if (data.success && data.url) {
+            // Redirect to PhonePe Gateway
+            window.location.href = data.url; 
+        } else {
+            toast.error("Payment Initiation Failed.");
             setLoading(false);
         }
+    } catch (error) {
+        console.error("Payment Error", error);
+        toast.error("Server Error in Payment");
+        setLoading(false);
     }
   };
 
@@ -255,9 +253,10 @@ const Checkout: React.FC = () => {
                   <div className="bg-white p-8 shadow-sm border-t-4 border-navy-900 animate-fade-in-up">
                       <div className="flex items-center gap-2 mb-6"><div className="w-8 h-8 rounded-full bg-navy-900 text-white flex items-center justify-center font-bold text-sm">3</div><h2 className="text-lg font-bold uppercase tracking-widest text-navy-900">Payment Method</h2></div>
                       <div className="space-y-4 mb-8">
-                          <label className={`flex items-center justify-between p-4 border cursor-pointer transition-colors ${paymentMethod === 'Prepaid' ? 'border-navy-900 bg-navy-50' : 'border-gray-200'}`}>
+                          {/* COD Removed - Only Online Payment */}
+                          <label className="flex items-center justify-between p-4 border border-navy-900 bg-navy-50 cursor-pointer transition-colors">
                               <div className="flex items-center">
-                                  <input type="radio" name="payment" checked={paymentMethod === 'Prepaid'} onChange={() => setPaymentMethod('Prepaid')} className="text-navy-900 focus:ring-navy-900" />
+                                  <input type="radio" checked readOnly className="text-navy-900 focus:ring-navy-900" />
                                   <div className="ml-3">
                                       <div className="flex items-center gap-2"><span className="font-bold text-navy-900 text-lg">Pay with PhonePe</span><span className="bg-purple-600 text-white text-[9px] px-1.5 py-0.5 rounded uppercase font-bold">Fast</span></div>
                                       <p className="text-xs text-gray-500 mt-1 flex items-center gap-2"><Smartphone size={14} /> UPI, Credit/Debit Cards, NetBanking</p>
@@ -265,18 +264,10 @@ const Checkout: React.FC = () => {
                               </div>
                               <div className="w-8 h-8 rounded-full bg-purple-100 flex items-center justify-center text-purple-700"><Smartphone size={18} /></div>
                           </label>
-
-                          <label className={`flex items-center justify-between p-4 border cursor-pointer transition-colors ${paymentMethod === 'COD' ? 'border-navy-900 bg-navy-50' : 'border-gray-200'}`}>
-                              <div className="flex items-center">
-                                  <input type="radio" name="payment" checked={paymentMethod === 'COD'} onChange={() => setPaymentMethod('COD')} className="text-navy-900 focus:ring-navy-900" />
-                                  <div className="ml-3"><span className="font-medium text-gray-800">Cash on Delivery</span><p className="text-xs text-gray-500 mt-1">Pay when you receive the order.</p></div>
-                              </div>
-                              <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-600"><Banknote size={18} /></div>
-                          </label>
                       </div>
                       
                       <button onClick={handleFinalPayment} disabled={loading} className="w-full bg-navy-900 text-white py-5 uppercase tracking-widest font-bold hover:bg-gold-600 border border-transparent transition-all duration-300 shadow-lg disabled:opacity-70 flex justify-center items-center">
-                          {loading ? 'Processing...' : paymentMethod === 'Prepaid' ? `Proceed to Pay ₹${finalPayable.toFixed(2)}` : `Place Order ₹${finalPayable.toFixed(2)}`}
+                          {loading ? 'Processing...' : `Proceed to Pay ₹${finalPayable.toFixed(2)}`}
                       </button>
                   </div>
               )}

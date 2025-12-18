@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { ArrowRight, Star, Truck, ShieldCheck, Clock, MoveRight, Quote, ChevronLeft, ChevronRight } from 'lucide-react';
 import ProductCard from '../components/ProductCard';
 import { useCMS } from '../context/CMSContext';
@@ -47,7 +46,6 @@ const TestimonialSlider = () => {
     setStartIndex((prev) => (prev - 1 + testimonials.length) % testimonials.length);
   };
 
-  // Calculate visible items with wrapping
   const visibleTestimonials = [];
   if (testimonials.length > 0) {
       for (let i = 0; i < visibleCount; i++) {
@@ -81,7 +79,6 @@ const TestimonialSlider = () => {
           <div className="text-center text-gray-400">No testimonials available.</div>
       )}
 
-      {/* Custom Navigation Buttons */}
       {testimonials.length > 3 && (
         <div className="flex justify-center mt-12 gap-4">
             <button 
@@ -169,7 +166,7 @@ const Home: React.FC = () => {
                   <div className="absolute inset-0 bg-gradient-to-t from-navy-900/90 via-transparent to-transparent opacity-60 group-hover:opacity-80 transition-opacity duration-500"></div>
                   <div className="absolute bottom-12 left-12 text-white transform translate-y-8 group-hover:translate-y-0 transition-transform duration-700">
                       <h3 className="text-4xl font-serif italic mb-4">The Royal Edit</h3>
-                      <Link to="/shop?category=Saree" className="inline-flex items-center text-gold-400 uppercase tracking-widest text-xs font-bold hover:text-white transition-colors border-b border-gold-400 pb-1">
+                      <Link to="/shop" className="inline-flex items-center text-gold-400 uppercase tracking-widest text-xs font-bold hover:text-white transition-colors border-b border-gold-400 pb-1">
                           Explore Collection <MoveRight className="ml-2 w-4 h-4" />
                       </Link>
                   </div>

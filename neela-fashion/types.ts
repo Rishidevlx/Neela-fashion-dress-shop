@@ -10,13 +10,16 @@ export interface Product {
   description: string;
   material: string;
   rating: number;
-  stock: number; // Total Stock (Sum of all sizes)
-  sizeStock?: { [key: string]: number }; // NEW: { "S": 10, "M": 0, "L": 5 }
+  stock: number;
+  sizeStock?: { [key: string]: number };
+  sizePrices?: { [key: string]: number }; // NEW: Size specific price
 }
 
 export interface CartItem extends Product {
   quantity: number;
-  selectedSize?: string; // NEW: Stores "M", "L", etc.
+  selectedSize?: string;
+  // Note: we can carry the resolved price here, or recalculate. 
+  // Sticking to Product definition is fine as we can look up sizePrices.
 }
 
 export type UserRole = 'admin' | 'user';
@@ -31,11 +34,12 @@ export interface User {
   isActive: boolean; 
   address?: string;
   city?: string;
+  district?: string;
   state?: string;
   pincode?: string;
 }
 
-export type OrderStatus = 'Pending' | 'Processing' | 'Shipped' | 'Delivered' | 'Cancelled';
+export type OrderStatus = 'Pending' | 'Processing' | 'Shipped' | 'Delivered' | 'Cancelled' | 'Payment Failed';
 
 export interface ShippingDetails {
   firstName: string;
@@ -56,7 +60,7 @@ export interface Order {
   date: string;
   total: number;
   status: OrderStatus;
-  paymentMethod: 'Prepaid' | 'COD'; 
+  paymentMethod: 'Prepaid' | 'COD' | 'Prepaid (PhonePe)'; 
   items: CartItem[];
   billingDetails: ShippingDetails;
   shippingDetails: ShippingDetails;

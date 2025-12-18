@@ -22,11 +22,7 @@ const Cart: React.FC = () => {
   }, [products]);
 
   const handleProceedToCheckout = () => {
-      if (isAuthenticated) {
-          navigate('/checkout');
-      } else {
-          setShowLoginPopup(true);
-      }
+      if (isAuthenticated) { navigate('/checkout'); } else { setShowLoginPopup(true); }
   }
 
   if (cart.length === 0) {
@@ -43,7 +39,6 @@ const Cart: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-sand-50 pt-40 pb-20 relative">
-      {/* Login Modal */}
       {showLoginPopup && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in">
               <div className="bg-white p-8 rounded-xl shadow-2xl max-w-md w-full text-center relative">
@@ -72,19 +67,19 @@ const Cart: React.FC = () => {
                                  <div>
                                      <p className="text-[10px] text-gray-400 uppercase tracking-widest mb-1">{item.category}</p>
                                      <Link to={`/product/${item.id}`} className="font-serif text-xl text-navy-900 hover:text-gold-600 transition-colors">{item.name}</Link>
-                                     {/* DISPLAY SIZE */}
                                      {item.selectedSize && <span className="block mt-1 text-xs font-bold text-navy-900 bg-gray-100 w-fit px-2 py-0.5 rounded">Size: {item.selectedSize}</span>}
                                  </div>
                                  <button onClick={() => removeFromCart(item.id, item.selectedSize)} className="text-gray-300 hover:text-red-500 transition-colors p-2 transform hover:rotate-12"><Trash2 size={18} /></button>
                              </div>
-                             <p className="font-sans text-navy-900 font-medium text-sm mb-4 tracking-wide">Price: ₹{item.discountPrice || item.price}</p>
+                             {/* DISPLAY PRICE - Simplified because CartContext already resolved the correct price */}
+                             <p className="font-sans text-navy-900 font-medium text-sm mb-4 tracking-wide">Price: ₹{item.price}</p>
                              <div className="flex items-center justify-between">
                                  <div className="flex items-center border border-gray-200">
                                      <button onClick={() => updateQuantity(item.id, item.quantity - 1, item.selectedSize)} className="w-8 h-8 flex items-center justify-center hover:bg-gray-100 text-navy-900"><Minus size={12} /></button>
                                      <span className="w-10 text-center text-sm font-medium text-navy-900">{item.quantity}</span>
                                      <button onClick={() => updateQuantity(item.id, item.quantity + 1, item.selectedSize)} className="w-8 h-8 flex items-center justify-center hover:bg-gray-100 text-navy-900"><Plus size={12} /></button>
                                  </div>
-                                 <div className="text-right"><p className="font-sans font-bold text-navy-900 text-lg tracking-wide">₹{(item.discountPrice || item.price) * item.quantity}</p></div>
+                                 <div className="text-right"><p className="font-sans font-bold text-navy-900 text-lg tracking-wide">₹{item.price * item.quantity}</p></div>
                              </div>
                          </div>
                      </div>
@@ -99,7 +94,7 @@ const Cart: React.FC = () => {
                  <div className="space-y-4 mb-8 text-sm text-gray-600">
                      <div className="flex justify-between"><span className="font-sans">Subtotal</span><span className="font-sans">₹{cartTotal}</span></div>
                      <div className="flex justify-between"><span className="font-sans">Shipping</span><span className="text-gold-600 font-medium font-sans">Calculated at Checkout</span></div>
-                     <div className="flex justify-between"><span className="font-sans">Tax ({globalSettings.taxRate}%)</span><span className="font-sans">₹{taxAmount.toFixed(2)}</span></div>
+                     <div className="flex justify-between"><span className="font-sans">Tax ({globalSettings?.taxRate || 0}%)</span><span className="font-sans">₹{taxAmount.toFixed(2)}</span></div>
                  </div>
                  <div className="flex justify-between font-serif text-xl text-navy-900 font-bold border-t border-gray-100 pt-6 mb-8"><span>Total</span><span className="font-sans tracking-wide">₹{finalTotal.toFixed(2)}</span></div>
                  <button onClick={handleProceedToCheckout} className="w-full bg-navy-900 border border-navy-900 text-white py-4 uppercase tracking-widest text-xs font-bold hover:bg-transparent hover:text-navy-900 transition-all duration-500 shadow-md hover:shadow-2xl">Proceed to Checkout</button>
@@ -108,7 +103,7 @@ const Cart: React.FC = () => {
           </div>
         </div>
 
-        {/* Recommendations from Real Products */}
+        {/* Recommendations */}
         <div className="border-t border-gray-200 pt-16">
             <h2 className="text-3xl font-serif text-navy-900 mb-8 text-center">You Might Also Love</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">

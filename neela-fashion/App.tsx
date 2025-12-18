@@ -15,14 +15,16 @@ import Signup from './pages/Signup';
 import Wishlist from './pages/Wishlist';
 import Profile from './pages/Profile';
 import Admin from './pages/Admin';
+import ReturnsPolicy from './pages/ReturnsPolicy';
+import PrivacyPolicy from './pages/PrivacyPolicy'; // IMPORT NEW PRIVACY PAGE
+import Terms from './pages/Terms'; // IMPORT NEW TERMS PAGE
 import FloatingContact from './components/FloatingContact';
 import { CartProvider } from './context/CartContext';
 import { AuthProvider } from './context/AuthContext';
 import { WishlistProvider } from './context/WishlistContext';
 import { CMSProvider } from './context/CMSContext';
-import { Toaster } from 'react-hot-toast'; // IMPORT THIS
+import { Toaster } from 'react-hot-toast';
 
-// Scroll to top helper
 const ScrollToTop = () => {
   const { pathname } = useLocation();
   useEffect(() => {
@@ -31,14 +33,12 @@ const ScrollToTop = () => {
   return null;
 };
 
-// Force Redirect Component on Reload
 const RedirectToHomeOnMount = () => {
     const navigate = useNavigate();
     const location = useLocation();
-    
     useEffect(() => {
         if (location.pathname !== '/') {
-             navigate('/');
+             // navigate('/'); 
         }
     }, []); 
     return null;
@@ -51,7 +51,6 @@ const App: React.FC = () => {
         <AuthProvider>
           <CartProvider>
             <WishlistProvider>
-              {/* Add Toaster Here for Notifications */}
               <Toaster 
                 position="top-center" 
                 reverseOrder={false} 
@@ -83,6 +82,11 @@ const App: React.FC = () => {
                     <Route path="/wishlist" element={<Wishlist />} />
                     <Route path="/profile" element={<Profile />} />
                     <Route path="/admin" element={<Admin />} />
+                    
+                    {/* LEGAL ROUTES */}
+                    <Route path="/returns" element={<ReturnsPolicy />} />
+                    <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+                    <Route path="/terms" element={<Terms />} />
                   </Routes>
                 </main>
                 <ConditionalFooter />
@@ -96,7 +100,6 @@ const App: React.FC = () => {
   );
 };
 
-// Helpers to hide layout on Admin page
 const ConditionalNavbar = () => {
   const location = useLocation();
   if (location.pathname.startsWith('/admin')) return null;
