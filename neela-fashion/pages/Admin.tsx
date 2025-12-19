@@ -5,10 +5,10 @@ import { Navigate, useNavigate, Link } from 'react-router-dom';
 import { 
   LayoutDashboard, FileText, Users, ShoppingCart, Settings, 
   Package, Globe, LogOut, Trash2, Edit, Plus, Save,
-  Image as ImageIcon, X, Layers, Minus, AlertTriangle, CheckCircle, 
-  ArrowLeft, Menu, Home, ShoppingBag, Phone, Info, Search, Eye, EyeOff, Shield, Lock,
-  DollarSign, ToggleRight, ToggleLeft, Upload, Download, Printer, File,
-  TrendingUp, Activity, AlertCircle, Calendar, MessageSquare, Star, Filter
+  X, Layers, AlertTriangle, CheckCircle, 
+  ArrowLeft, Menu, Activity, Search, Eye, EyeOff, Shield, Lock,
+  DollarSign, ToggleRight, ToggleLeft, Upload, Download, Printer,
+  TrendingUp, AlertCircle, MessageSquare, Star, Info, Loader, RefreshCcw
 } from 'lucide-react';
 import { Product, ShippingRule, INDIAN_STATES, SHIPPING_TYPES, Order, ContactContent, User, AVAILABLE_SIZES } from '../types';
 
@@ -47,9 +47,15 @@ const ConfirmModal: React.FC<{ isOpen: boolean, title: string, message: string, 
     );
 };
 
-// --- Dashboard View ---
-const DashboardView = ({ setTab }: { setTab: (tab: any) => void }) => {
+// --- View Components ---
+
+const DashboardView = ({ setTab, setToast }: { setTab: (tab: any) => void, setToast: (msg: string) => void }) => {
   const { orders, users, products, reviews } = useCMS();
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+
+  // Dynamic URL from env for Reset API
+  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+
   const totalRevenue = orders.reduce((acc, o) => acc + o.total, 0);
   const totalSales = orders.length;
   
@@ -69,30 +75,37 @@ const DashboardView = ({ setTab }: { setTab: (tab: any) => void }) => {
   ];
 
   const handleDownloadMonthlyReport = () => {
-    const salesByMonth: { [key: string]: { revenue: number, count: number } } = {};
-    orders.forEach(order => {
-        const dateObj = new Date(order.date);
-        if (!isNaN(dateObj.getTime())) {
-            const monthYear = dateObj.toLocaleString('default', { month: 'long', year: 'numeric' });
-            if (!salesByMonth[monthYear]) {
-                salesByMonth[monthYear] = { revenue: 0, count: 0 };
-            }
-            salesByMonth[monthYear].revenue += order.total;
-            salesByMonth[monthYear].count += 1;
-        }
-    });
-    const headers = ["Month", "Total Orders", "Total Revenue"];
-    const rows = Object.entries(salesByMonth).map(([month, data]) => {
-        return `"${month}",${data.count},${data.revenue.toFixed(2)}`;
-    });
-    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows].join("\n");
+    // Advanced CSV Generation
+    const headers = ["Order ID", "Date", "Customer Name", "Payment Method", "Status", "Items Count", "Total Amount"];
+    const rows = orders.map(order => [
+        order.id,
+        order.date,
+        `"${order.userName}"`,
+        order.paymentMethod,
+        order.status,
+        order.items.length,
+        order.total.toFixed(2)
+    ]);
+
+    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", "monthly_sales_report.csv");
+    link.setAttribute("download", "advanced_sales_report.csv");
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const handleResetDashboard = async () => {
+      try {
+          await fetch(`${API_URL}/api/admin/reset-stats`, { method: 'DELETE' });
+          setToast("Dashboard Reset Successfully. Reloading...");
+          setTimeout(() => window.location.reload(), 1500);
+      } catch (error) {
+          setToast("Failed to reset dashboard");
+      }
+      setShowResetConfirm(false);
   };
 
   return (
@@ -116,6 +129,14 @@ const DashboardView = ({ setTab }: { setTab: (tab: any) => void }) => {
                 className="bg-navy-900 text-white px-4 py-2 rounded shadow hover:bg-gold-600 transition-colors flex items-center text-xs font-bold uppercase tracking-wider"
               >
                   <Download size={14} className="mr-2" /> Monthly Report
+              </button>
+              
+              {/* NEW RESET BUTTON */}
+              <button 
+                onClick={() => setShowResetConfirm(true)}
+                className="bg-red-600 text-white px-4 py-2 rounded shadow hover:bg-red-700 transition-colors flex items-center text-xs font-bold uppercase tracking-wider"
+              >
+                  <RefreshCcw size={14} className="mr-2" /> Reset Data
               </button>
           </div>
       </div>
@@ -242,6 +263,14 @@ const DashboardView = ({ setTab }: { setTab: (tab: any) => void }) => {
               </div>
           </div>
       </div>
+      
+      <ConfirmModal 
+          isOpen={showResetConfirm} 
+          title="Reset Dashboard Data?" 
+          message="WARNING: This will permanently delete ALL orders and sales data. This action cannot be undone. Are you sure?" 
+          onConfirm={handleResetDashboard} 
+          onCancel={() => setShowResetConfirm(false)} 
+      />
     </div>
   );
 };
@@ -433,7 +462,7 @@ const ContactContentView = ({ setToast }: { setToast: (msg: string) => void }) =
 // --- MANAGERS ---
 
 const CategoryManagerView = ({ setToast }: { setToast: (msg: string) => void }) => { 
-    const { categories, shippingRules, addCategory, updateCategory, deleteCategory, addSubCategory } = useCMS(); 
+    const { categories, shippingRules, addCategory, updateCategory, deleteCategory, addSubCategory, deleteSubCategory } = useCMS(); 
     const [selectedCat, setSelectedCat] = useState<string | null>(null); 
     const [editMode, setEditMode] = useState(false); 
     const [catName, setCatName] = useState(''); 
@@ -466,6 +495,13 @@ const CategoryManagerView = ({ setToast }: { setToast: (msg: string) => void }) 
         } 
         resetForm(); 
     }; 
+
+    const handleDeleteSub = (sub: string) => {
+        if (selectedCat) {
+            deleteSubCategory(selectedCat, sub);
+            setSubs(prev => prev.filter(s => s !== sub));
+        }
+    };
 
     const handleAddRule = () => { setRules([...rules, { state: 'All States', minQty: 1, maxQty: 99, cost: 0, type: 'fixed' }]); }; 
     const handleUpdateRule = (idx: number, field: keyof ShippingRule, value: any) => { const newRules = [...rules]; newRules[idx] = { ...newRules[idx], [field]: value }; setRules(newRules); }; 
@@ -513,7 +549,16 @@ const CategoryManagerView = ({ setToast }: { setToast: (msg: string) => void }) 
                         </div>
                         <div>
                             <label className="text-xs font-bold uppercase text-gray-500">Sub Categories</label>
-                            <div className="flex flex-wrap gap-2 mt-2 mb-2">{subs.map(s => (<span key={s} className="px-3 py-1 bg-gray-100 rounded-full text-xs">{s}</span>))}</div>
+                            <div className="flex flex-wrap gap-2 mt-2 mb-2">
+                                {subs.map(s => (
+                                    <span key={s} className="px-3 py-1 bg-gray-100 rounded-full text-xs flex items-center">
+                                        {s}
+                                        {editMode && (
+                                            <button onClick={() => handleDeleteSub(s)} className="ml-2 text-gray-400 hover:text-red-500"><X size={12}/></button>
+                                        )}
+                                    </span>
+                                ))}
+                            </div>
                             {editMode && (<div className="flex gap-2"><input className="border rounded p-2 text-sm flex-1 bg-white" placeholder="New Subcategory" value={newSub} onChange={e => setNewSub(e.target.value)} /><button onClick={() => { if(newSub) { addSubCategory(selectedCat!, newSub); setSubs([...subs, newSub]); setNewSub(''); setToast('Subcategory Added'); } }} className="bg-gray-200 px-4 rounded text-xs font-bold">Add</button></div>)}
                         </div>
                         <div className="pt-4 border-t"><button onClick={handleSave} className="w-full bg-navy-900 text-white py-3 rounded font-bold uppercase text-xs tracking-widest hover:bg-gold-600">{editMode ? 'Update Category' : 'Create Category'}</button></div>
@@ -775,6 +820,7 @@ const ProductManagerView = ({ setToast }: { setToast: (msg: string) => void }) =
     const [showBulkConfirm, setShowBulkConfirm] = useState(false); 
     const [selectedProducts, setSelectedProducts] = useState<number[]>([]); 
     const [newImageUrl, setNewImageUrl] = useState(''); 
+    const [isSaving, setIsSaving] = useState(false); 
     const fileInputRef = useRef<HTMLInputElement>(null); 
     const additionalImageInputRef = useRef<HTMLInputElement>(null);
     const csvInputRef = useRef<HTMLInputElement>(null);
@@ -792,6 +838,8 @@ const ProductManagerView = ({ setToast }: { setToast: (msg: string) => void }) =
     const handleSave = async () => { 
         if (!editProduct.name || !editProduct.category) { setToast('Please fill required fields'); return; } 
         
+        setIsSaving(true); 
+
         // Calculate Total Stock from Size Inputs
         let totalStock = 0;
         Object.values(sizeStockInput).forEach(val => totalStock += Number(val));
@@ -826,6 +874,7 @@ const ProductManagerView = ({ setToast }: { setToast: (msg: string) => void }) =
             }; 
             await addProduct(newP); 
         } 
+        setIsSaving(false); 
         setIsModalOpen(false); 
     }; 
     
@@ -842,12 +891,12 @@ const ProductManagerView = ({ setToast }: { setToast: (msg: string) => void }) =
         setIsModalOpen(true); 
     }; 
 
-    const handleSizeStockChange = (size: string, qty: string) => {
-        setSizeStockInput(prev => ({ ...prev, [size]: Number(qty) }));
+    const handleSizeStockChange = (size: string, value: string) => {
+        setSizeStockInput(prev => ({ ...prev, [size]: Number(value) }));
     };
 
-    const handleSizePriceChange = (size: string, price: string) => {
-        setSizePriceInput(prev => ({ ...prev, [size]: Number(price) }));
+    const handleSizePriceChange = (size: string, value: string) => {
+        setSizePriceInput(prev => ({ ...prev, [size]: Number(value) }));
     };
 
     const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, isAdditional = false) => { const file = e.target.files?.[0]; if (file) { const reader = new FileReader(); reader.onloadend = () => { if (isAdditional) { const currentImages = editProduct.images || []; setEditProduct(prev => ({...prev, images: [...currentImages, reader.result as string]})); } else { setEditProduct(prev => ({ ...prev, image: reader.result as string })); } }; reader.readAsDataURL(file); } }; 
@@ -861,16 +910,36 @@ const ProductManagerView = ({ setToast }: { setToast: (msg: string) => void }) =
     const handleExportCSV = () => {
         const productsToExport = selectedProducts.length > 0 ? products.filter(p => selectedProducts.includes(p.id)) : products;
         if (productsToExport.length === 0) { setToast('No products to export.'); return; }
-        const headers = ["name", "category", "subCategory", "price", "stock", "image", "description", "material"];
+        
+        const headers = ["name", "category", "subCategory", "price", "discountPrice", "stock", "image", "description", "material", "images", "sizeStock", "sizePrices"];
+        
         const productRows = productsToExport.map(p => {
             const safeString = (str: any) => `"${String(str || '').replace(/"/g, '""')}"`; 
-            return [safeString(p.name), safeString(p.category), safeString(p.subCategory), p.price, p.stock, safeString(p.image), safeString(p.description), safeString(p.material)].join(",");
+            const imagesStr = (p.images || []).join('|'); 
+            const sizeStockStr = JSON.stringify(p.sizeStock).replace(/"/g, '""'); 
+            const sizePricesStr = JSON.stringify(p.sizePrices).replace(/"/g, '""'); 
+
+            return [
+                safeString(p.name), 
+                safeString(p.category), 
+                safeString(p.subCategory), 
+                p.price, 
+                p.discountPrice || '',
+                p.stock, 
+                safeString(p.image), 
+                safeString(p.description), 
+                safeString(p.material),
+                `"${imagesStr}"`, 
+                `"${sizeStockStr}"`, 
+                `"${sizePricesStr}"`
+            ].join(",");
         });
+        
         const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...productRows].join("\n");
         const encodedUri = encodeURI(csvContent);
         const link = document.createElement("a");
         link.setAttribute("href", encodedUri);
-        const filename = selectedProducts.length > 0 ? "selected_products.csv" : "all_products.csv";
+        const filename = selectedProducts.length > 0 ? "selected_products.csv" : "all_products_backup.csv";
         link.setAttribute("download", filename);
         document.body.appendChild(link);
         link.click();
@@ -878,22 +947,68 @@ const ProductManagerView = ({ setToast }: { setToast: (msg: string) => void }) =
         setToast(`Exported ${productsToExport.length} products to CSV.`);
     };
 
+    // --- CSV IMPORT HANDLER ---
     const handleCSVUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
         const reader = new FileReader();
         reader.onload = async (evt) => {
             const text = evt.target?.result as string;
-            const rows = text.split(/\r?\n/).map(row => row.split(','));
+            const rows: string[][] = [];
+            let currentRow: string[] = [];
+            let currentField = '';
+            let insideQuotes = false;
+            
+            for (let i = 0; i < text.length; i++) {
+                const char = text[i];
+                if (char === '"') {
+                    if (insideQuotes && text[i+1] === '"') { i++; currentField += '"'; } 
+                    else { insideQuotes = !insideQuotes; }
+                } else if (char === ',' && !insideQuotes) {
+                    currentRow.push(currentField.trim()); currentField = '';
+                } else if ((char === '\n' || char === '\r') && !insideQuotes) {
+                    if (currentField || currentRow.length > 0) currentRow.push(currentField.trim());
+                    if (currentRow.length > 0) rows.push(currentRow);
+                    currentRow = []; currentField = '';
+                } else {
+                    currentField += char;
+                }
+            }
+            if (currentField || currentRow.length > 0) currentRow.push(currentField.trim());
+            if (currentRow.length > 0) rows.push(currentRow);
+
             let startIndex = -1;
-            for(let i=0; i<rows.length; i++) { if(rows[i][0] && rows[i][0].toLowerCase().trim() === 'name') { startIndex = i + 1; break; } }
+            for(let i=0; i<rows.length; i++) { 
+                if(rows[i][0] && rows[i][0].toLowerCase().replace(/"/g,'').trim() === 'name') { startIndex = i + 1; break; } 
+            }
             if (startIndex === -1) startIndex = 0; 
+
             const productsToImport: Partial<Product>[] = [];
             for (let i = startIndex; i < rows.length; i++) {
-                const row = rows[i];
+                const row = rows[i].map(c => c.replace(/^"|"$/g, '')); 
                 if (row.length < 4 || !row[0]) continue; 
+                
+                let parsedImages: string[] = [];
+                let parsedSizeStock = {};
+                let parsedSizePrices = {};
+
+                try { parsedImages = row[9] ? row[9].split('|') : []; } catch(e){}
+                try { parsedSizeStock = row[10] ? JSON.parse(row[10].replace(/""/g, '"')) : {}; } catch(e){}
+                try { parsedSizePrices = row[11] ? JSON.parse(row[11].replace(/""/g, '"')) : {}; } catch(e){}
+
                 productsToImport.push({
-                    name: row[0]?.trim(), category: row[1]?.trim(), subCategory: row[2]?.trim() || '', price: Number(row[3]?.trim()) || 0, stock: Number(row[4]?.trim()) || 0, image: row[5]?.trim() || 'https://via.placeholder.com/400', description: row[6]?.trim() || 'Imported Product', material: row[7]?.trim() || 'Standard'
+                    name: row[0]?.trim(), 
+                    category: row[1]?.trim(), 
+                    subCategory: row[2]?.trim() || '', 
+                    price: Number(row[3]?.trim()) || 0, 
+                    discountPrice: Number(row[4]?.trim()) || undefined,
+                    stock: Number(row[5]?.trim()) || 0, 
+                    image: row[6]?.trim() || 'https://via.placeholder.com/400', 
+                    description: row[7]?.trim() || 'Imported Product', 
+                    material: row[8]?.trim() || 'Standard',
+                    images: parsedImages, 
+                    sizeStock: parsedSizeStock, 
+                    sizePrices: parsedSizePrices 
                 });
             }
             if (productsToImport.length > 0) { await importProducts(productsToImport); } else { setToast('No valid products found in CSV. Check format.'); }
@@ -930,7 +1045,7 @@ const ProductManagerView = ({ setToast }: { setToast: (msg: string) => void }) =
             <div className="bg-white shadow-sm rounded-xl overflow-hidden border border-gray-200 overflow-x-auto">
                 <table className="w-full text-left min-w-[800px]">
                     <thead className="bg-gray-50 text-gray-500 uppercase text-xs tracking-wider border-b border-gray-200">
-                        <tr><th className="p-4 w-10"><input type="checkbox" onChange={(e) => { if (e.target.checked) setSelectedProducts(filteredProducts.map(p => p.id)); else setSelectedProducts([]); }} checked={selectedProducts.length === filteredProducts.length && filteredProducts.length > 0} /></th><th className="p-4">Image</th><th className="p-4">Name</th><th className="p-4">Category</th><th className="p-4">Price</th><th className="p-4">Total Stock</th><th className="p-4 text-right">Actions</th></tr>
+                        <tr><th className="p-4 w-10"><input type="checkbox" onChange={(e) => { if (e.target.checked) setSelectedProducts(filteredProducts.map(p => p.id)); else setSelectedProducts([]); }} checked={selectedProducts.length === filteredProducts.length && filteredProducts.length > 0} /></th><th className="p-4">Image</th><th className="p-4">Name</th><th className="p-4">Category</th><th className="p-4">Price</th><th className="p-4">Stock</th><th className="p-4 text-right">Actions</th></tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                         {filteredProducts.map(p => {
@@ -942,23 +1057,34 @@ const ProductManagerView = ({ setToast }: { setToast: (msg: string) => void }) =
                                 <td className="p-4 font-medium text-navy-900">{p.name}</td>
                                 <td className="p-4 text-sm text-gray-500">{p.category} / {p.subCategory}</td>
                                 <td className="p-4 font-bold text-navy-900">₹{p.price}</td>
+                                
+                                {/* UPDATED STOCK DISPLAY */}
                                 <td className="p-4">
-                                    <span className={`px-2 py-1 rounded text-xs font-bold ${isLowStock ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
-                                        {p.stock}
-                                    </span>
+                                    <div className="text-xs">
+                                        <span className={`font-bold ${p.stock < 10 ? 'text-red-600' : 'text-green-600'}`}>Total: {p.stock}</span>
+                                        <div className="grid grid-cols-2 gap-1 mt-1 text-[10px] text-gray-500">
+                                            {p.sizeStock && Object.entries(p.sizeStock).map(([size, qty]) => (
+                                                Number(qty) > 0 && <span key={size}>{size}:{qty}</span>
+                                            ))}
+                                        </div>
+                                    </div>
                                 </td>
+
                                 <td className="p-4 text-right"><div className="flex gap-2 justify-end"><button onClick={() => openModal(p)} className="text-blue-600 p-2 hover:bg-blue-50 rounded"><Edit size={16}/></button><button onClick={() => setDeleteConfirm(p.id)} className="text-red-600 p-2 hover:bg-red-50 rounded"><Trash2 size={16}/></button></div></td>
                             </tr>
                         )})}
                     </tbody>
                 </table>
             </div>
+
+            {/* MODAL */}
              {isModalOpen && (<div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"><div className="bg-white rounded-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto p-8 shadow-2xl"><div className="flex justify-between items-center mb-6 border-b pb-4"><h3 className="text-2xl font-serif font-bold text-navy-900">{editProduct.id ? 'Edit Product' : 'Add New Product'}</h3><button onClick={() => setIsModalOpen(false)}><X className="text-gray-400 hover:text-red-500" /></button></div>
              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                  <div className="md:col-span-2"><label className="text-xs font-bold uppercase text-gray-500">Product Name</label><input className="w-full border border-gray-300 p-3 rounded mt-1 bg-white text-navy-900 outline-none focus:border-navy-900" value={editProduct.name} onChange={e => setEditProduct({...editProduct, name: e.target.value})} /></div>
                  <div><label className="text-xs font-bold uppercase text-gray-500">Category</label><select className="w-full border border-gray-300 p-3 rounded mt-1 bg-white text-navy-900 outline-none focus:border-navy-900" value={editProduct.category} onChange={e => setEditProduct({...editProduct, category: e.target.value, subCategory: ''})}>{Object.keys(categories).map(c => <option key={c} value={c}>{c}</option>)}</select></div>
                  <div><label className="text-xs font-bold uppercase text-gray-500">Sub Category</label><select className="w-full border border-gray-300 p-3 rounded mt-1 bg-white text-navy-900 outline-none focus:border-navy-900" value={editProduct.subCategory} onChange={e => setEditProduct({...editProduct, subCategory: e.target.value})}><option value="">Select</option>{categories[editProduct.category!]?.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
-                 <div><label className="text-xs font-bold uppercase text-gray-500">Base Price</label><input type="number" className="w-full border border-gray-300 p-3 rounded mt-1 bg-white text-navy-900 outline-none focus:border-navy-900" value={editProduct.price} onChange={e => setEditProduct({...editProduct, price: Number(e.target.value)})} /></div>
+                 
+                 <div><label className="text-xs font-bold uppercase text-gray-500">Base Price</label><input type="number" className="w-full border border-gray-300 p-3 rounded mt-1 bg-white text-navy-900 outline-none focus:border-navy-900" value={editProduct.price || ''} onChange={e => setEditProduct({...editProduct, price: Number(e.target.value)})} /></div>
                  <div><label className="text-xs font-bold uppercase text-gray-500">Discount Price</label><input type="number" className="w-full border border-gray-300 p-3 rounded mt-1 bg-white text-navy-900 outline-none focus:border-navy-900" value={editProduct.discountPrice || ''} onChange={e => setEditProduct({...editProduct, discountPrice: Number(e.target.value)})} /></div>
                  
                  {/* SIZE STOCK & PRICE GRID */}
@@ -1001,15 +1127,41 @@ const ProductManagerView = ({ setToast }: { setToast: (msg: string) => void }) =
                  <div className="md:col-span-2"><label className="text-xs font-bold uppercase text-gray-500">Material</label><input className="w-full border border-gray-300 p-3 rounded mt-1 bg-white text-navy-900 outline-none focus:border-navy-900" value={editProduct.material} onChange={e => setEditProduct({...editProduct, material: e.target.value})} /></div>
                  
                  <div className="md:col-span-2"><label className="text-xs font-bold uppercase text-gray-500">Main Image</label><div className="flex gap-4 mt-1 items-start"><div className="flex-1"><div className="flex gap-2 mb-2"><input type="text" className="flex-1 border border-gray-300 p-3 rounded bg-white text-navy-900 outline-none focus:border-navy-900" value={editProduct.image} onChange={e => setEditProduct({...editProduct, image: e.target.value})} placeholder="Image URL" /><button onClick={() => fileInputRef.current?.click()} className="px-4 bg-gray-100 rounded border border-gray-300 hover:bg-gray-200 text-gray-600"><Upload size={20}/></button></div><input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={e => handleImageUpload(e, false)} /></div>{editProduct.image && (<div className="w-20 h-20 border rounded overflow-hidden flex-shrink-0"><img src={editProduct.image} alt="Main" className="w-full h-full object-cover" /></div>)}</div></div>
-                 <div className="md:col-span-2"><label className="text-xs font-bold uppercase text-gray-500 mb-2 block">Additional Images</label><div className="grid grid-cols-4 gap-4 mb-4">{editProduct.images && editProduct.images.map((img, idx) => (<div key={idx} className="relative group border rounded overflow-hidden aspect-square"><img src={img} className="w-full h-full object-cover" alt={`Sub ${idx}`} /><button onClick={() => removeAdditionalImage(idx)} className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"><X size={12} /></button></div>))}</div><div className="flex gap-2 items-center"><input type="text" className="flex-1 border border-gray-300 p-3 rounded bg-white text-navy-900 outline-none focus:border-navy-900" value={newImageUrl} onChange={e => setNewImageUrl(e.target.value)} placeholder="Add Image URL" /><button onClick={() => additionalImageInputRef.current?.click()} className="px-4 py-3 bg-gray-100 rounded border border-gray-300 hover:bg-gray-200 text-gray-600"><Upload size={20}/></button><button onClick={addAdditionalImage} className="px-4 py-3 bg-navy-900 text-white rounded font-bold uppercase text-xs">Add</button><input type="file" ref={additionalImageInputRef} className="hidden" accept="image/*" onChange={e => handleImageUpload(e, true)} /></div></div>
+                 
+                 {/* RESTORED: ADDITIONAL IMAGES SECTION */}
+                 <div className="md:col-span-2">
+                     <label className="text-xs font-bold uppercase text-gray-500 mb-2 block">Additional Images (Sub-images)</label>
+                     <div className="grid grid-cols-4 gap-4 mb-4">
+                         {editProduct.images && editProduct.images.map((img, idx) => (
+                             <div key={idx} className="relative group border rounded overflow-hidden aspect-square">
+                                 <img src={img} className="w-full h-full object-cover" alt={`Sub ${idx}`} />
+                                 <button onClick={() => removeAdditionalImage(idx)} className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"><X size={12} /></button>
+                             </div>
+                         ))}
+                     </div>
+                     <div className="flex gap-2 items-center">
+                         <input type="text" className="flex-1 border border-gray-300 p-3 rounded bg-white text-navy-900 outline-none focus:border-navy-900" value={newImageUrl} onChange={e => setNewImageUrl(e.target.value)} placeholder="Add Image URL" />
+                         <button onClick={() => additionalImageInputRef.current?.click()} className="px-4 py-3 bg-gray-100 rounded border border-gray-300 hover:bg-gray-200 text-gray-600"><Upload size={20}/></button>
+                         <button onClick={addAdditionalImage} className="px-4 py-3 bg-navy-900 text-white rounded font-bold uppercase text-xs">Add</button>
+                         <input type="file" ref={additionalImageInputRef} className="hidden" accept="image/*" onChange={e => handleImageUpload(e, true)} />
+                     </div>
+                 </div>
+
                  <div className="md:col-span-2"><label className="text-xs font-bold uppercase text-gray-500">Description</label><textarea className="w-full border border-gray-300 p-3 rounded mt-1 h-24 bg-white text-navy-900 outline-none focus:border-navy-900" value={editProduct.description} onChange={e => setEditProduct({...editProduct, description: e.target.value})} /></div>
-             </div><div className="flex justify-end gap-4 mt-8 pt-6 border-t border-gray-100"><button onClick={() => setIsModalOpen(false)} className="px-6 py-3 border border-gray-300 rounded text-gray-600 bg-white font-bold uppercase text-xs tracking-wider hover:bg-gray-50">Cancel</button><button onClick={handleSave} className="px-8 py-3 bg-navy-900 text-white rounded font-bold uppercase text-xs tracking-wider hover:bg-gold-600 shadow-lg">Save Product</button></div></div></div>)}<ConfirmModal isOpen={!!deleteConfirm} title="Delete Product?" message="This action cannot be undone." onConfirm={async () => { if(deleteConfirm) await deleteProduct(deleteConfirm); setDeleteConfirm(null); }} onCancel={() => setDeleteConfirm(null)} /><ConfirmModal isOpen={showBulkConfirm} title="Delete Multiple Products?" message={`Are you sure you want to delete ${selectedProducts.length} selected products? This action cannot be undone.`} onConfirm={performBulkDelete} onCancel={() => setShowBulkConfirm(false)} />
+             
+             </div><div className="flex justify-end gap-4 mt-8 pt-6 border-t border-gray-100"><button onClick={() => setIsModalOpen(false)} className="px-6 py-3 border border-gray-300 rounded text-gray-600 bg-white font-bold uppercase text-xs tracking-wider hover:bg-gray-50">Cancel</button><button onClick={handleSave} disabled={isSaving} className="px-8 py-3 bg-navy-900 text-white rounded font-bold uppercase text-xs tracking-wider hover:bg-gold-600 shadow-lg flex items-center">{isSaving ? <><Loader size={14} className="animate-spin mr-2"/> Saving...</> : 'Save Product'}</button></div></div></div>)}<ConfirmModal isOpen={!!deleteConfirm} title="Delete Product?" message="This action cannot be undone." onConfirm={async () => { if(deleteConfirm) await deleteProduct(deleteConfirm); setDeleteConfirm(null); }} onCancel={() => setDeleteConfirm(null)} /><ConfirmModal isOpen={showBulkConfirm} title="Delete Multiple Products?" message={`Are you sure you want to delete ${selectedProducts.length} selected products? This action cannot be undone.`} onConfirm={performBulkDelete} onCancel={() => setShowBulkConfirm(false)} />
         </div>
     ); 
 };
 
 const InvoiceTemplate = ({ order, globalSettings, contactContent, onClose }: { order: Order, globalSettings: any, contactContent: ContactContent, onClose: () => void }) => {
-    const subtotal = order.items.reduce((acc, item) => acc + (item.discountPrice || item.price) * item.quantity, 0);
+    // FIX: Updated Subtotal Calculation to include size-specific prices
+    const subtotal = order.items.reduce((acc, item) => {
+        const itemPrice = item.price || 0; // Use resolved price from item
+        return acc + (itemPrice * item.quantity);
+    }, 0);
+
+    const shippingCost = order.total > subtotal ? order.total - subtotal : 0;
 
     return (
         <div className="fixed inset-0 bg-black/80 z-[100] overflow-y-auto flex items-center justify-center p-4 print:p-0 print:bg-white print:static print:block">
@@ -1041,9 +1193,15 @@ const InvoiceTemplate = ({ order, globalSettings, contactContent, onClose }: { o
                 <button onClick={onClose} className="absolute top-6 right-6 p-2 bg-gray-100 hover:bg-red-100 rounded-full text-gray-600 hover:text-red-600 transition-all z-50 print:hidden border border-gray-200" title="Close Invoice"><X size={24} /></button>
                 <div className="flex justify-between items-start mb-8"><div className="w-1/3">{globalSettings.logoUrl && (<img src={globalSettings.logoUrl} alt="Logo" className="h-24 w-auto object-contain mb-4" />)}</div><div className="w-1/2 text-right text-sm"><h2 className="font-bold text-lg uppercase mb-1">{globalSettings.siteName}</h2><div className="whitespace-pre-wrap text-gray-600 mb-1">{contactContent.address}</div><div className="text-gray-600">{contactContent.email}</div><div className="text-gray-600">{contactContent.phone}</div></div></div>
                 <div className="mb-8"><h1 className="text-3xl font-bold uppercase tracking-wider">INVOICE</h1></div>
-                <div className="grid grid-cols-3 gap-8 mb-8 text-sm"><div><h3 className="font-bold uppercase mb-2">Bill To:</h3>{order.billingDetails ? (<div className="text-gray-700 leading-relaxed"><p className="font-bold">{order.billingDetails.firstName} {order.billingDetails.lastName}</p><p>{order.billingDetails.address}</p><p>{order.billingDetails.city}, {order.billingDetails.state}</p><p>{order.billingDetails.pincode}</p><p className="mt-1">{order.billingDetails.phone}</p></div>) : <p>Guest</p>}</div><div><h3 className="font-bold uppercase mb-2">Ship To:</h3>{order.shippingDetails ? (<div className="text-gray-700 leading-relaxed"><p className="font-bold">{order.shippingDetails.firstName} {order.shippingDetails.lastName}</p><p>{order.shippingDetails.address}</p><p>{order.shippingDetails.city}, {order.shippingDetails.state}</p><p>{order.shippingDetails.pincode}</p><p className="mt-1">{order.shippingDetails.phone}</p></div>) : <p>Same as Billing</p>}</div><div className="text-right"><div className="mb-2"><span className="font-bold block">Invoice Number:</span><span>{order.id.replace('ORD-', 'INV-')}</span></div><div className="mb-2"><span className="font-bold block">Invoice Date:</span><span>{order.date}</span></div><div className="mb-2"><span className="font-bold block">Order Number:</span><span>{order.id}</span></div><div className="mb-2"><span className="font-bold block">Payment Method:</span><span>{order.paymentMethod}</span></div></div></div>
-                <table className="w-full mb-8 border-collapse"><thead><tr className="bg-black text-white text-sm font-bold uppercase"><th className="py-2 px-3 text-left">Product</th><th className="py-2 px-3 text-right">Quantity</th><th className="py-2 px-3 text-right">Price</th></tr></thead><tbody className="text-sm border-b border-gray-300">{order.items.map((item, i) => (<tr key={i} className="border-b border-gray-200"><td className="py-3 px-3"><p className="font-bold">{item.name}</p><p className="text-xs text-gray-500">Size: {item.selectedSize || 'N/A'}</p></td><td className="py-3 px-3 text-right">{item.quantity}</td><td className="py-3 px-3 text-right">₹{(item.discountPrice || item.price).toFixed(2)}</td></tr>))}</tbody></table>
-                <div className="flex justify-end mb-12"><div className="w-1/2 max-w-xs"><div className="flex justify-between py-2 border-b border-gray-200 text-sm"><span className="font-bold">Subtotal</span><span>₹{subtotal.toFixed(2)}</span></div><div className="flex justify-between py-2 border-b border-gray-200 text-sm"><span className="font-bold">Shipping</span><span>{order.total > subtotal ? `₹${(order.total - subtotal).toFixed(2)}` : 'Free'}</span></div><div className="flex justify-between py-2 border-b border-black text-lg font-bold mt-1"><span>Total</span><span>₹{order.total.toFixed(2)}</span></div></div></div>
+                <div className="grid grid-cols-3 gap-8 mb-8 text-sm"><div><h3 className="font-bold uppercase mb-2">Bill To:</h3>{order.billingDetails ? (<div className="text-gray-700 leading-relaxed"><p className="font-bold">{order.billingDetails.firstName} {order.billingDetails.lastName}</p><p>{order.billingDetails.address}</p><p>{order.billingDetails.city}, {order.billingDetails.district}</p><p>{order.billingDetails.state} - {order.billingDetails.pincode}</p><p className="mt-1">{order.billingDetails.phone}</p></div>) : <p>Guest</p>}</div><div><h3 className="font-bold uppercase mb-2">Ship To:</h3>{order.shippingDetails ? (<div className="text-gray-700 leading-relaxed"><p className="font-bold">{order.shippingDetails.firstName} {order.shippingDetails.lastName}</p><p>{order.shippingDetails.address}</p><p>{order.shippingDetails.city}, {order.shippingDetails.district}</p><p>{order.shippingDetails.state} - {order.shippingDetails.pincode}</p><p className="mt-1">{order.shippingDetails.phone}</p></div>) : <p>Same as Billing</p>}</div><div className="text-right"><div className="mb-2"><span className="font-bold block">Invoice Number:</span><span>{order.id.replace('ORD-', 'INV-')}</span></div><div className="mb-2"><span className="font-bold block">Invoice Date:</span><span>{order.date}</span></div><div className="mb-2"><span className="font-bold block">Order Number:</span><span>{order.id}</span></div><div className="mb-2"><span className="font-bold block">Payment Method:</span><span>{order.paymentMethod}</span></div></div></div>
+                <table className="w-full mb-8 border-collapse"><thead><tr className="bg-black text-white text-sm font-bold uppercase"><th className="py-2 px-3 text-left">Product</th><th className="py-2 px-3 text-right">Quantity</th><th className="py-2 px-3 text-right">Price</th></tr></thead><tbody className="text-sm border-b border-gray-300">{order.items.map((item, i) => (<tr key={i} className="border-b border-gray-200"><td className="py-3 px-3"><p className="font-bold">{item.name}</p><p className="text-xs text-gray-500">Size: {item.selectedSize || 'N/A'}</p></td><td className="py-3 px-3 text-right">{item.quantity}</td><td className="py-3 px-3 text-right">₹{(item.price || 0).toFixed(2)}</td></tr>))}</tbody></table>
+                <div className="flex justify-end mb-12">
+                    <div className="w-1/2 max-w-xs">
+                        <div className="flex justify-between py-2 border-b border-gray-200 text-sm"><span className="font-bold">Subtotal</span><span>₹{subtotal.toFixed(2)}</span></div>
+                        <div className="flex justify-between py-2 border-b border-gray-200 text-sm"><span className="font-bold">Shipping</span><span>{shippingCost > 0 ? `₹${shippingCost.toFixed(2)}` : 'Free'}</span></div>
+                        <div className="flex justify-between py-2 border-b border-black text-lg font-bold mt-1"><span>Total</span><span>₹{order.total.toFixed(2)}</span></div>
+                    </div>
+                </div>
                 <div className="mt-auto text-center text-sm text-gray-600 pt-8 border-t border-gray-200"><p className="mb-2 font-bold">Thank you for shopping with {globalSettings.siteName}!</p><p className="text-xs">All sales are subject to our Terms & Conditions and Return Policy.</p><p className="text-xs mt-1">Contact: {contactContent.email} | {contactContent.phone}</p></div>
                 <div className="absolute bottom-8 right-8 no-print flex gap-4"><button onClick={onClose} className="px-6 py-3 bg-gray-200 text-gray-700 rounded shadow hover:bg-gray-300 font-bold text-xs uppercase tracking-wider">Close</button><button onClick={() => window.print()} className="bg-navy-900 text-white px-8 py-3 rounded shadow-xl flex items-center uppercase text-xs font-bold tracking-wider hover:bg-gold-600"><Printer size={18} className="mr-3"/> Print Invoice</button></div>
             </div>
@@ -1057,7 +1215,7 @@ const PackingSlipTemplate = ({ order, globalSettings, onClose }: { order: Order,
         <div className="packing-modal bg-white w-[148mm] min-h-[210mm] shadow-2xl relative font-sans text-navy-900 p-8 flex flex-col border border-gray-200 print:border-none print:shadow-none">
              <div className="flex justify-between items-start mb-6"><div className="w-20">{globalSettings.logoUrl && <img src={globalSettings.logoUrl} alt="Logo" className="w-full h-auto object-contain" />}</div><div className="text-right text-xs"><h1 className="font-bold uppercase">{globalSettings.siteName}</h1><p>Bangalore, India</p></div></div>
              <h2 className="text-xl font-bold uppercase mb-6 border-b-2 border-black pb-2">PACKING SLIP</h2>
-             <div className="grid grid-cols-2 gap-4 mb-6 text-xs"><div><h3 className="font-bold uppercase mb-1">Ship To:</h3>{order.shippingDetails ? (<div><p>{order.shippingDetails.firstName} {order.shippingDetails.lastName}</p><p>{order.shippingDetails.address}</p><p>{order.shippingDetails.city}, {order.shippingDetails.state}</p><p>{order.shippingDetails.pincode}</p></div>) : <p>Same as Billing</p>}</div><div className="text-right"><p><span className="font-bold">Order #:</span> {order.id}</p><p><span className="font-bold">Date:</span> {order.date}</p><p><span className="font-bold">Method:</span> Standard</p></div></div>
+             <div className="grid grid-cols-2 gap-4 mb-6 text-xs"><div><h3 className="font-bold uppercase mb-1">Ship To:</h3>{order.shippingDetails ? (<div><p>{order.shippingDetails.firstName} {order.shippingDetails.lastName}</p><p>{order.shippingDetails.address}</p><p>{order.shippingDetails.city}, {order.shippingDetails.district}</p><p>{order.shippingDetails.state} - {order.shippingDetails.pincode}</p></div>) : <p>Same as Billing</p>}</div><div className="text-right"><p><span className="font-bold">Order #:</span> {order.id}</p><p><span className="font-bold">Date:</span> {order.date}</p><p><span className="font-bold">Method:</span> Standard</p></div></div>
              <table className="w-full border-collapse mb-6"><thead><tr className="bg-black text-white text-xs uppercase font-bold"><th className="py-1 px-2 text-left">Product</th><th className="py-1 px-2 text-right">Qty</th></tr></thead><tbody className="text-xs border-b border-black">{order.items.map((item, i) => (<tr key={i} className="border-b border-gray-200"><td className="py-2 px-2"><p className="font-bold">{item.name}</p><p className="text-[10px] text-gray-500">Size: {item.selectedSize || 'N/A'}</p></td><td className="py-2 px-2 text-right font-bold">{item.quantity}</td></tr>))}</tbody></table>
              <div className="mt-auto pt-4 border-t border-gray-300 text-center text-[10px] text-gray-500"><p>Thank you for shopping with {globalSettings.siteName}!</p><p>For support: support@neela.com</p></div>
             <div className="absolute bottom-4 left-4 no-print flex gap-2"><button onClick={onClose} className="bg-gray-200 text-gray-700 px-4 py-2 rounded shadow uppercase text-[10px] font-bold tracking-wider hover:bg-gray-300">Close</button><button onClick={() => window.print()} className="bg-navy-900 text-white px-4 py-2 rounded shadow flex items-center uppercase text-[10px] font-bold tracking-wider hover:bg-gold-600"><Printer size={14} className="mr-2"/> Print Slip</button></div>
@@ -1145,10 +1303,38 @@ const OrderManagerView = ({ setToast }: { setToast: (msg: string) => void }) => 
                         </div>
                         <div className="p-8 space-y-8">
                             {selectedOrder.notes && (<div className="bg-yellow-50 border border-yellow-100 p-4 rounded-lg"><h4 className="font-bold text-navy-900 uppercase text-xs tracking-widest mb-2 flex items-center"><Info size={14} className="mr-1"/> Customer Notes</h4><p className="text-sm text-gray-700 italic">"{selectedOrder.notes}"</p></div>)}
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8"><div className="border p-4 rounded-lg"><h4 className="font-bold text-navy-900 uppercase text-xs tracking-widest mb-4 border-b pb-2">Billing Details</h4>{selectedOrder.billingDetails ? (<div className="text-sm text-gray-600 space-y-1"><p className="font-bold text-navy-900">{selectedOrder.billingDetails.firstName} {selectedOrder.billingDetails.lastName}</p><p>{selectedOrder.billingDetails.email}</p><p>{selectedOrder.billingDetails.phone}</p><p>{selectedOrder.billingDetails.address}</p><p>{selectedOrder.billingDetails.city}, {selectedOrder.billingDetails.district}</p><p>{selectedOrder.billingDetails.state} - {selectedOrder.billingDetails.pincode}</p></div>) : <p className="text-gray-400 text-sm">Guest Checkout</p>}</div><div className="border p-4 rounded-lg"><h4 className="font-bold text-navy-900 uppercase text-xs tracking-widest mb-4 border-b pb-2">Shipping Details</h4>{selectedOrder.shippingDetails ? (<div className="text-sm text-gray-600 space-y-1"><p className="font-bold text-navy-900">{selectedOrder.shippingDetails.firstName} {selectedOrder.shippingDetails.lastName}</p><p>{selectedOrder.shippingDetails.email}</p><p>{selectedOrder.shippingDetails.phone}</p><p>{selectedOrder.shippingDetails.address}</p><p>{selectedOrder.shippingDetails.city}, {selectedOrder.shippingDetails.district}</p><p>{selectedOrder.shippingDetails.state} - {selectedOrder.shippingDetails.pincode}</p></div>) : <p className="text-gray-400 text-sm">Same as Billing</p>}</div></div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                <div className="border p-4 rounded-lg">
+                                    <h4 className="font-bold text-navy-900 uppercase text-xs tracking-widest mb-4 border-b pb-2">Billing Details</h4>
+                                    {selectedOrder.billingDetails ? (
+                                        <div className="text-sm text-gray-600 space-y-1">
+                                            <p className="font-bold text-navy-900">{selectedOrder.billingDetails.firstName} {selectedOrder.billingDetails.lastName}</p>
+                                            <p>{selectedOrder.billingDetails.email}</p>
+                                            <p>{selectedOrder.billingDetails.phone}</p>
+                                            <p>{selectedOrder.billingDetails.address}</p>
+                                            <p>{selectedOrder.billingDetails.city}, {selectedOrder.billingDetails.district}</p>
+                                            <p>{selectedOrder.billingDetails.state} - {selectedOrder.billingDetails.pincode}</p>
+                                        </div>
+                                    ) : <p className="text-gray-400 text-sm">Guest Checkout</p>}
+                                </div>
+                                <div className="border p-4 rounded-lg">
+                                    <h4 className="font-bold text-navy-900 uppercase text-xs tracking-widest mb-4 border-b pb-2">Shipping Details</h4>
+                                    {selectedOrder.shippingDetails ? (
+                                        <div className="text-sm text-gray-600 space-y-1">
+                                            <p className="font-bold text-navy-900">{selectedOrder.shippingDetails.firstName} {selectedOrder.shippingDetails.lastName}</p>
+                                            <p>{selectedOrder.shippingDetails.email}</p>
+                                            <p>{selectedOrder.shippingDetails.phone}</p>
+                                            <p>{selectedOrder.shippingDetails.address}</p>
+                                            <p>{selectedOrder.shippingDetails.city}, {selectedOrder.shippingDetails.district}</p>
+                                            <p>{selectedOrder.shippingDetails.state} - {selectedOrder.shippingDetails.pincode}</p>
+                                        </div>
+                                    ) : <p className="text-gray-400 text-sm">Same as Billing</p>}
+                                </div>
+                            </div>
+                            
                             <div>
                                 <h4 className="font-bold text-navy-900 uppercase text-xs tracking-widest mb-4">Order Items</h4>
-                                <table className="w-full text-left border rounded-lg overflow-hidden"><thead className="bg-gray-50 text-xs uppercase font-bold text-gray-500"><tr><th className="p-3">Product</th><th className="p-3 text-right">Price</th><th className="p-3 text-center">Qty</th><th className="p-3 text-right">Total</th></tr></thead><tbody className="divide-y">{selectedOrder.items.map((item, idx) => (<tr key={idx}><td className="p-3"><div className="flex items-center gap-3"><img src={item.image} className="w-10 h-12 object-cover rounded" alt=""/><div className=""><p className="text-sm font-bold text-navy-900">{item.name}</p><p className="text-[10px] text-gray-500">{item.category} | {item.subCategory}</p>{item.selectedSize && <span className="text-[10px] bg-gray-200 px-2 rounded-full font-bold text-navy-900">Size: {item.selectedSize}</span>}</div></div></td><td className="p-3 text-right text-sm">₹{item.discountPrice || item.price}</td><td className="p-3 text-center text-sm">{item.quantity}</td><td className="p-3 text-right font-bold text-sm">₹{(item.discountPrice || item.price) * item.quantity}</td></tr>))}</tbody></table>
+                                <table className="w-full text-left border rounded-lg overflow-hidden"><thead className="bg-gray-50 text-xs uppercase font-bold text-gray-500"><tr><th className="p-3">Product</th><th className="p-3 text-right">Price</th><th className="p-3 text-center">Qty</th><th className="p-3 text-right">Total</th></tr></thead><tbody className="divide-y">{selectedOrder.items.map((item, idx) => (<tr key={idx}><td className="p-3"><div className="flex items-center gap-3"><img src={item.image} className="w-10 h-12 object-cover rounded" alt=""/><div className=""><p className="text-sm font-bold text-navy-900">{item.name}</p><p className="text-[10px] text-gray-500">{item.category} | {item.subCategory}</p>{item.selectedSize && <span className="text-[10px] bg-gray-200 px-2 rounded-full font-bold text-navy-900">Size: {item.selectedSize}</span>}</div></div></td><td className="p-3 text-right text-sm">₹{(item.price || 0)}</td><td className="p-3 text-center text-sm">{item.quantity}</td><td className="p-3 text-right font-bold text-sm">₹{(item.price || 0) * item.quantity}</td></tr>))}</tbody></table>
                             </div>
                             <div>
                                 <h4 className="font-bold text-navy-900 uppercase text-xs tracking-widest mb-4">Documentation Actions</h4>
@@ -1197,7 +1383,7 @@ const Admin: React.FC = () => {
           <div className="p-4 border-t border-white/10 flex-shrink-0 space-y-2"><button onClick={() => navigate('/')} className="w-full flex items-center p-3 rounded hover:bg-navy-800 text-gold-400 transition-colors font-bold text-xs uppercase tracking-wider"><ArrowLeft size={18} className="mr-3" /> Back to Website</button><button onClick={logout} className="w-full flex items-center p-3 rounded hover:bg-red-900/30 text-red-300 transition-colors"><LogOut size={18} className="mr-3" /> Logout</button></div>
        </div>
        <div className="flex-1 p-4 pt-20 md:p-10 md:pt-10 overflow-y-auto h-full relative w-full">
-           {activeTab === 'dashboard' && <DashboardView setTab={setActiveTab} />}
+           {activeTab === 'dashboard' && <DashboardView setTab={setActiveTab} setToast={setToastMsg} />}
            {activeTab === 'global' && <GlobalSettingsView setToast={setToastMsg} />}
            {activeTab === 'home' && <HomeContentView setToast={setToastMsg} />}
            {activeTab === 'categories' && <CategoryManagerView setToast={setToastMsg} />}

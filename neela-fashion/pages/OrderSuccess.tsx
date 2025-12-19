@@ -1,13 +1,20 @@
-import React, { useRef } from 'react';
+import React, { useRef, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { CheckCircle, ArrowRight, Download } from 'lucide-react';
 import { CartItem, ShippingDetails } from '../types';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
+import { useCart } from '../context/CartContext'; // Import Cart Context
 
 const OrderSuccess: React.FC = () => {
   const location = useLocation();
   const invoiceRef = useRef<HTMLDivElement>(null);
+  const { clearCart } = useCart(); // Use clearCart function
+
+  // Clear cart immediately when success page loads
+  useEffect(() => {
+    clearCart();
+  }, []); // Run only once on mount
   
   const state = location.state as { 
       orderId: string, 
@@ -16,9 +23,13 @@ const OrderSuccess: React.FC = () => {
       billing: ShippingDetails,
       shipping: ShippingDetails 
   } | null;
-  
-  const orderId = state?.orderId || 'ORD-XXXXX';
-  const total = state?.total || '0.00';
+
+  // Fallback to URL params if state is lost (e.g. redirect from payment gateway)
+  const queryParams = new URLSearchParams(location.search);
+  const orderId = state?.orderId || queryParams.get('id') || 'ORD-XXXXX';
+  const status = queryParams.get('status');
+
+  const total = state?.total || 'Paid Online';
   const items = state?.items || [];
   const billing = state?.billing;
   const shipping = state?.shipping;
@@ -55,6 +66,7 @@ const OrderSuccess: React.FC = () => {
                 </div>
                 <h1 className="text-4xl font-serif text-navy-900 mb-2">Thank You</h1>
                 <p className="text-gold-600 uppercase tracking-widest text-xs font-bold">Order Confirmed</p>
+                <p className="text-sm text-gray-500 mt-2">Your payment was successful!</p>
             </div>
 
             <div className="border-b-2 border-dashed border-gray-200 mb-8"></div>
@@ -67,7 +79,7 @@ const OrderSuccess: React.FC = () => {
                             <span className="font-bold text-navy-900 block mb-1">{billing.firstName} {billing.lastName}</span>
                             {billing.address}<br/>{billing.city}, {billing.district}<br/>{billing.state} - {billing.pincode}<br/>{billing.phone}
                         </p>
-                    ) : (<p className="text-sm text-gray-400">Guest Checkout</p>)}
+                    ) : (<p className="text-sm text-gray-400">Order details sent to email.</p>)}
                 </div>
                 <div>
                     <h3 className="font-bold text-navy-900 uppercase text-xs tracking-wider mb-4">Shipped To</h3>
@@ -89,25 +101,26 @@ const OrderSuccess: React.FC = () => {
                  </div>
             </div>
 
-            <div className="mb-8">
-                <h3 className="font-bold text-navy-900 uppercase text-xs tracking-wider mb-4">Items Purchased</h3>
-                <div className="space-y-4">
-                    {items.map((item, idx) => (
-                        <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded border border-gray-100">
-                            <div className="flex items-center gap-4">
-                                <img src={item.image} alt={item.name} className="w-12 h-16 object-cover rounded-sm" />
-                                <div>
-                                    <p className="text-sm font-bold text-navy-900">{item.name}</p>
-                                    <p className="text-xs text-gray-500">Qty: {item.quantity} | {item.subCategory}</p>
-                                    {/* DISPLAY SIZE */}
-                                    {item.selectedSize && <p className="text-xs font-bold text-navy-900 mt-1">Size: {item.selectedSize}</p>}
+            {items.length > 0 && (
+                <div className="mb-8">
+                    <h3 className="font-bold text-navy-900 uppercase text-xs tracking-wider mb-4">Items Purchased</h3>
+                    <div className="space-y-4">
+                        {items.map((item, idx) => (
+                            <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded border border-gray-100">
+                                <div className="flex items-center gap-4">
+                                    <img src={item.image} alt={item.name} className="w-12 h-16 object-cover rounded-sm" />
+                                    <div>
+                                        <p className="text-sm font-bold text-navy-900">{item.name}</p>
+                                        <p className="text-xs text-gray-500">Qty: {item.quantity} | {item.subCategory}</p>
+                                        {item.selectedSize && <p className="text-xs font-bold text-navy-900 mt-1">Size: {item.selectedSize}</p>}
+                                    </div>
                                 </div>
+                                <p className="font-mono text-sm text-navy-900">₹{(item.discountPrice || item.price) * item.quantity}</p>
                             </div>
-                            <p className="font-mono text-sm text-navy-900">₹{(item.discountPrice || item.price) * item.quantity}</p>
-                        </div>
-                    ))}
+                        ))}
+                    </div>
                 </div>
-            </div>
+            )}
 
             <div className="flex justify-between items-center bg-navy-900 text-white p-6 rounded-lg shadow-lg">
                  <span className="font-serif text-lg">Total Paid</span>

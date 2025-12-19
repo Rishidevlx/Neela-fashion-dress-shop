@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { Minus, Plus, ShoppingBag, Star, Heart, AlertCircle, Camera, Upload, Send, User } from 'lucide-react';
+import { Minus, Plus, ShoppingBag, Star, Heart, AlertCircle, Camera, Send, User } from 'lucide-react';
 import { useCart } from '../context/CartContext';
 import { useWishlist } from '../context/WishlistContext';
 import { useAuth } from '../context/AuthContext';
@@ -148,9 +148,9 @@ const ProductDetail: React.FC = () => {
       alert("Review submitted successfully!");
   };
 
-  const galleryImages = product.images && product.images.length > 0 
-      ? [product.image, ...product.images.filter(img => img !== product.image)] 
-      : [product.image];
+  // Gallery Logic: Combine Main Image + Sub Images (Remove Duplicates)
+  const allImages = [product.image, ...(product.images || [])];
+  const galleryImages = Array.from(new Set(allImages));
 
   return (
     <div className="pt-40 pb-16 bg-white min-h-screen">
@@ -159,6 +159,7 @@ const ProductDetail: React.FC = () => {
           
           {/* Left: Image Gallery */}
           <div className="md:w-1/2">
+            {/* Main Large Image */}
             <div className="bg-gray-100 overflow-hidden aspect-[3/4] relative group shadow-lg mb-4 rounded-sm">
               <img 
                 src={mainImage} 
@@ -182,7 +183,7 @@ const ProductDetail: React.FC = () => {
               )}
             </div>
             
-            {/* Thumbnails */}
+            {/* Thumbnails (Sub Images) */}
             {galleryImages.length > 1 && (
                 <div>
                     <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">Detailed Views</p>

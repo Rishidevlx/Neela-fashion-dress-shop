@@ -17,6 +17,7 @@ const AddressFormFields = ({ form, onChange, disabled }: { form: ShippingDetails
         <div className="group"><label className="text-[10px] text-gray-500 uppercase tracking-wider font-bold">Phone Number</label><input required name="phone" value={form.phone} onChange={onChange} type="tel" className="w-full border-b border-gray-300 py-2 outline-none focus:border-navy-900 bg-white text-navy-900" /></div>
         <div className="md:col-span-2 group"><label className="text-[10px] text-gray-500 uppercase tracking-wider font-bold">Address</label><input required name="address" value={form.address} onChange={onChange} type="text" className="w-full border-b border-gray-300 py-2 outline-none focus:border-navy-900 bg-white text-navy-900" /></div>
         <div className="group"><label className="text-[10px] text-gray-500 uppercase tracking-wider font-bold">City</label><input required name="city" value={form.city} onChange={onChange} type="text" className="w-full border-b border-gray-300 py-2 outline-none focus:border-navy-900 bg-white text-navy-900" /></div>
+        {/* District Field Corrected */}
         <div className="group"><label className="text-[10px] text-gray-500 uppercase tracking-wider font-bold">District</label><input required name="district" value={form.district} onChange={onChange} type="text" className="w-full border-b border-gray-300 py-2 outline-none focus:border-navy-900 bg-white text-navy-900" /></div>
         <div className="group"><label className="text-[10px] text-gray-500 uppercase tracking-wider font-bold">State</label><select required name="state" value={form.state} onChange={onChange} className="w-full border-b border-gray-300 py-2 outline-none focus:border-navy-900 bg-white text-navy-900">{INDIAN_STATES.slice(2).map(state => <option key={state} value={state}>{state}</option>)}</select></div>
         <div className="group"><label className="text-[10px] text-gray-500 uppercase tracking-wider font-bold">Pincode</label><input required name="pincode" value={form.pincode} onChange={onChange} type="text" className="w-full border-b border-gray-300 py-2 outline-none focus:border-navy-900 bg-white text-navy-900" /></div>
@@ -31,7 +32,6 @@ const Checkout: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [calculatedShipping, setCalculatedShipping] = useState(0);
   const [isAddressSaved, setIsAddressSaved] = useState(false);
-  // Default to Prepaid, removed COD state toggle logic
   const paymentMethod = 'Prepaid';
   const [sameAsBilling, setSameAsBilling] = useState(true);
   const [saveAddressForNextTime, setSaveAddressForNextTime] = useState(false);
@@ -43,6 +43,7 @@ const Checkout: React.FC = () => {
 
   const [shippingForm, setShippingForm] = useState<ShippingDetails>(billingForm);
 
+  // AUTO-FILL LOGIC: Fetch user details and fill all fields including District
   useEffect(() => {
       if (isAuthenticated && user && users.length > 0) {
           const freshUser = users.find(u => String(u.id) === String(user.id));
@@ -55,7 +56,7 @@ const Checkout: React.FC = () => {
                   phone: freshUser.phone || '',
                   address: freshUser.address || '',
                   city: freshUser.city || '',
-                  district: freshUser.district || '', // FIX: Loading district correctly
+                  district: freshUser.district || '', // FILL DISTRICT
                   state: freshUser.state || 'Tamil Nadu',
                   pincode: freshUser.pincode || ''
               }));
@@ -129,11 +130,13 @@ const Checkout: React.FC = () => {
   const handleAddressSubmit = (e: React.FormEvent) => { 
       e.preventDefault(); 
       calculateShippingCost(); 
+      
+      // SAVE ADDRESS (Includes District)
       if (saveAddressForNextTime && isAuthenticated && user) {
           updateUserProfile(user.id, {
               address: billingForm.address, 
               city: billingForm.city, 
-              district: billingForm.district, // FIX: Saving district
+              district: billingForm.district, // SAVING DISTRICT
               state: billingForm.state, 
               pincode: billingForm.pincode, 
               phone: billingForm.phone
@@ -147,7 +150,6 @@ const Checkout: React.FC = () => {
     setLoading(true);
     const orderId = 'ORD-' + Date.now().toString().slice(-6);
     
-    // Save Pending Order
     const newOrder: Order = {
         id: orderId,
         userId: user?.id || 'guest',
@@ -162,10 +164,8 @@ const Checkout: React.FC = () => {
         notes: orderNotes
     };
 
-    // Save order to DB (No email sent here)
     await addOrder(newOrder);
 
-    // --- INITIATE REAL PAYMENT ---
     try {
         const response = await fetch(`${API_URL}/api/payment/pay`, { 
             method: 'POST',
@@ -181,7 +181,6 @@ const Checkout: React.FC = () => {
         const data = await response.json();
 
         if (data.success && data.url) {
-            // Redirect to PhonePe Gateway
             window.location.href = data.url; 
         } else {
             toast.error("Payment Initiation Failed.");
@@ -253,7 +252,6 @@ const Checkout: React.FC = () => {
                   <div className="bg-white p-8 shadow-sm border-t-4 border-navy-900 animate-fade-in-up">
                       <div className="flex items-center gap-2 mb-6"><div className="w-8 h-8 rounded-full bg-navy-900 text-white flex items-center justify-center font-bold text-sm">3</div><h2 className="text-lg font-bold uppercase tracking-widest text-navy-900">Payment Method</h2></div>
                       <div className="space-y-4 mb-8">
-                          {/* COD Removed - Only Online Payment */}
                           <label className="flex items-center justify-between p-4 border border-navy-900 bg-navy-50 cursor-pointer transition-colors">
                               <div className="flex items-center">
                                   <input type="radio" checked readOnly className="text-navy-900 focus:ring-navy-900" />

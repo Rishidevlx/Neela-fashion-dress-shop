@@ -1,15 +1,19 @@
 const crypto = require('crypto');
 const axios = require('axios');
 const { Order } = require('./Order');
-const { sendCustomerStatusEmail } = require('./emailService'); // Import Email Service
+const { Cart } = require('./Cart');
+const { Product } = require('./Product'); // Import Product for Stock update
+const { sendCustomerStatusEmail, sendAdminNotification } = require('./emailService');
 require('dotenv').config();
 
 const MERCHANT_ID = process.env.PHONEPE_MERCHANT_ID;
 const SALT_KEY = process.env.PHONEPE_SALT_KEY;
 const SALT_INDEX = process.env.PHONEPE_SALT_INDEX || 1;
 const PHONEPE_HOST_URL = process.env.PHONEPE_HOST_URL || "https://api.phonepe.com/apis/hermes";
-const BACKEND_URL = process.env.BACKEND_URL;
-const FRONTEND_URL = process.env.FRONTEND_URL;
+
+// FIX: Trim URLs to remove accidental spaces causing %20 errors
+const BACKEND_URL = process.env.BACKEND_URL ? process.env.BACKEND_URL.trim() : "http://localhost:5000";
+const FRONTEND_URL = process.env.FRONTEND_URL ? process.env.FRONTEND_URL.trim() : "http://localhost:3000";
 
 const initiatePayment = async (req, res) => {
     try {
@@ -64,7 +68,7 @@ const initiatePayment = async (req, res) => {
                 url: response.data.data.instrumentResponse.redirectInfo.url 
             });
         } else {
-            console.error("❌ PhonePe Error:", JSON.stringify(response.data));
+            console.error("❌ PhonePe Production Error:", JSON.stringify(response.data));
             res.status(400).json({ success: false, message: 'Payment Failed', details: response.data });
         }
 
@@ -96,24 +100,55 @@ const checkStatus = async (req, res) => {
         const response = await axios.request(options);
 
         if (response.data.success && response.data.code === 'PAYMENT_SUCCESS') {
+            
+            // 1. UPDATE STATUS
             await Order.update(
                 { status: 'Processing', paymentMethod: 'Prepaid (PhonePe)' }, 
                 { where: { id: orderId } }
             );
 
-            // --- CORRECTION: SEND EMAIL ONLY HERE (ON SUCCESS) ---
+            // 2. FETCH ORDER
             const order = await Order.findByPk(orderId);
+            
             if (order) {
+                // 3. DEDUCT STOCK (Moved here so it only happens on success)
+                if (order.items && Array.isArray(order.items)) {
+                    for (const item of order.items) {
+                        const product = await Product.findByPk(item.id);
+                        if (product) {
+                            let updatedSizeStock = product.sizeStock ? { ...product.sizeStock } : {};
+                            let totalStock = 0;
+                            if (item.selectedSize && updatedSizeStock[item.selectedSize] !== undefined) {
+                                const currentSizeQty = Number(updatedSizeStock[item.selectedSize]);
+                                const newSizeQty = Math.max(0, currentSizeQty - item.quantity);
+                                updatedSizeStock[item.selectedSize] = newSizeQty;
+                            }
+                            // Recalculate total stock
+                            if (Object.keys(updatedSizeStock).length > 0) {
+                                Object.values(updatedSizeStock).forEach(qty => totalStock += Number(qty));
+                            } else {
+                                totalStock = Math.max(0, product.stock - item.quantity);
+                            }
+                            await product.update({ stock: totalStock, sizeStock: updatedSizeStock });
+                        }
+                    }
+                }
+
+                // 4. CLEAR CART
+                if (order.userId && order.userId !== 'guest') {
+                    await Cart.destroy({ where: { userId: order.userId } });
+                }
+
+                // 5. SEND EMAILS
                 let email = null;
-                let name = order.userName;
                 if (order.billingDetails) {
                     if (typeof order.billingDetails === 'object') email = order.billingDetails.email;
                     else if (typeof order.billingDetails === 'string') {
                         try { const details = JSON.parse(order.billingDetails); email = details.email; } catch (e) {}
                     }
                 }
-                // Send "Received" email now that payment is confirmed
-                if (email) sendCustomerStatusEmail(email, name, orderId, "Received");
+                if (email) await sendCustomerStatusEmail(email, order.userName, orderId, "Received");
+                await sendAdminNotification(order, orderId);
             }
 
             return res.redirect(`${FRONTEND_URL}/#/order-success?id=${orderId}&status=success`);

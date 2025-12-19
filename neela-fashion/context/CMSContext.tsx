@@ -34,16 +34,17 @@ interface CMSContextType {
   products: Product[]; orders: Order[]; users: User[]; categories: CategoryStructure; shippingRules: ShippingRulesMap; reviews: Review[];
   globalSettings: GlobalSettings; homeContent: HomeContent; aboutContent: AboutContent; contactContent: ContactContent; adminCredentials: { email: string; pass: string };
   
-  addProduct: (p: Product) => Promise<void>; 
-  updateProduct: (id: number, p: Partial<Product>) => void; 
-  deleteProduct: (id: number) => void; 
-  bulkDeleteProducts: (ids: number[]) => void; 
+  addProduct: (p: Product) => Promise<boolean>; 
+  updateProduct: (id: number, p: Partial<Product>) => Promise<boolean>; 
+  deleteProduct: (id: number) => Promise<void>; 
+  bulkDeleteProducts: (ids: number[]) => Promise<void>; 
   importProducts: (newProducts: Partial<Product>[]) => Promise<void>; 
 
   addCategory: (name: string, rules: ShippingRule[]) => void; 
   updateCategory: (oldName: string, newName: string, rules: ShippingRule[]) => void; 
   deleteCategory: (name: string) => void; 
   addSubCategory: (categoryName: string, subCategoryName: string) => void;
+  deleteSubCategory: (categoryName: string, subCategoryName: string) => void;
 
   updateUserProfile: (id: string, data: Partial<User>) => void; 
   deleteUser: (id: string) => void; 
@@ -116,7 +117,7 @@ export const CMSProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           const reviewData = await reviewRes.json(); if(reviewData.success) setReviews(reviewData.reviews);
           const orderData = await orderRes.json(); if(orderData.success) setOrders(orderData.orders);
           const homeData = await homeRes.json(); if(homeData.success) setHomeContent(homeData.data);
-          const globalData = await globalRes.json(); if(globalData.success) setGlobalSettings({ ...DEFAULT_GLOBAL_SETTINGS, ...globalData.data }); // Merge to ensure new fields exist
+          const globalData = await globalRes.json(); if(globalData.success) setGlobalSettings({ ...DEFAULT_GLOBAL_SETTINGS, ...globalData.data });
           const aboutData = await aboutRes.json(); if(aboutData.success) setAboutContent(aboutData.data);
           const contactData = await contactRes.json(); if(contactData.success) setContactContent(contactData.data);
           const adminData = await adminRes.json(); if(adminData.success) setAdminCredentials(prev => ({ ...prev, email: adminData.email }));
@@ -159,7 +160,28 @@ export const CMSProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const deleteCategory = async (name: string) => { try { await fetch(`${API_URL}/api/categories/${name}`, { method: 'DELETE' }); toast.success("Category Deleted!"); fetchCategories(); } catch (error) { toast.error("Server Error"); } };
+  
   const addSubCategory = async (categoryName: string, subCategoryName: string) => { try { await fetch(`${API_URL}/api/categories/${categoryName}/sub`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ subCategory: subCategoryName }) }); toast.success("SubCategory Added!"); fetchCategories(); } catch (error) { toast.error("Server Error"); } };
+
+  // NEW: Delete Subcategory
+  const deleteSubCategory = async (categoryName: string, subCategoryName: string) => {
+      try {
+          // Logic: Get existing subs, remove the one to delete, then Update Category
+          const currentSubs = categories[categoryName] || [];
+          const updatedSubs = currentSubs.filter(s => s !== subCategoryName);
+          const currentRules = shippingRules[categoryName] || [];
+          
+          await fetch(`${API_URL}/api/categories/${categoryName}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ newName: categoryName, subCategories: updatedSubs, rules: currentRules })
+          });
+          toast.success("SubCategory Removed!");
+          fetchCategories();
+      } catch (error) {
+          toast.error("Failed to delete subcategory");
+      }
+  };
 
   const addOrder = async (order: Order) => { try { const res = await fetch(`${API_URL}/api/orders`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(order) }); const d = await res.json(); if(d.success) fetchData(); } catch(e) { toast.error("Order Failed"); } };
   const updateOrderStatus = async (id: string, status: Order['status']) => { try { await fetch(`${API_URL}/api/orders/${id}/status`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) }); toast.success("Status Updated"); fetchData(); } catch(e) { toast.error("Update Failed"); } };
@@ -171,8 +193,35 @@ export const CMSProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const updateAboutContent = async (c: Partial<AboutContent>) => { const newContent = { ...aboutContent, ...c }; setAboutContent(newContent); try { await fetch(`${API_URL}/api/cms/about`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data: newContent }) }); toast.success("Updated!"); } catch (error) { toast.error("Server Error"); } };
   const updateContactContent = async (c: Partial<ContactContent>) => { const newContent = { ...contactContent, ...c }; setContactContent(newContent); try { await fetch(`${API_URL}/api/cms/contact`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data: newContent }) }); toast.success("Updated!"); } catch (error) { toast.error("Server Error"); } };
   
-  const addProduct = async (p: Product) => { try { const { id, ...pd } = p; const r = await fetch(`${API_URL}/api/products`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(pd) }); const d = await r.json(); if (d.success) { toast.success(`Added: ${p.name}`); fetchData(); } } catch (error) { toast.error("Error adding product"); } };
-  const updateProduct = async (id: number, p: Partial<Product>) => { try { await fetch(`${API_URL}/api/products/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(p) }); toast.success("Updated!"); fetchData(); } catch (error) { toast.error("Error"); } };
+  const addProduct = async (p: Product): Promise<boolean> => { 
+      try { 
+          const { id, ...pd } = p; 
+          const r = await fetch(`${API_URL}/api/products`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(pd) }); 
+          const d = await r.json(); 
+          if (d.success) { 
+              toast.success(`Added: ${p.name}`); 
+              fetchData(); 
+              return true;
+          } 
+          return false;
+      } catch (error) { 
+          toast.error("Error adding product"); 
+          return false;
+      } 
+  };
+
+  const updateProduct = async (id: number, p: Partial<Product>): Promise<boolean> => { 
+      try { 
+          await fetch(`${API_URL}/api/products/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(p) }); 
+          toast.success("Updated!"); 
+          fetchData(); 
+          return true;
+      } catch (error) { 
+          toast.error("Error"); 
+          return false;
+      } 
+  };
+
   const deleteProduct = async (id: number) => { try { await fetch(`${API_URL}/api/products/${id}`, { method: 'DELETE' }); toast.success("Deleted!"); setProducts(prev => prev.filter(p => p.id !== id)); } catch (error) { toast.error("Error"); } };
   const bulkDeleteProducts = async (ids: number[]) => { try { await fetch(`${API_URL}/api/products/bulk-delete`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) }); toast.success("Deleted!"); setProducts(prev => prev.filter(p => !ids.includes(p.id))); } catch (error) { toast.error("Error"); } };
   
@@ -201,8 +250,6 @@ export const CMSProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const deleteUser = async (id: string) => { try { const r = await fetch(`${API_URL}/api/users/${id}`, { method: 'DELETE' }); const d = await r.json(); if (d.success) { toast.success("Deleted!"); fetchData(); } else toast.error(d.message); } catch (error) { toast.error("Error"); } };
   const toggleUserStatus = async (id: string) => { try { const r = await fetch(`${API_URL}/api/users/${id}/status`, { method: 'PUT' }); const d = await r.json(); if (d.success) { toast.success(d.message); fetchData(); } else toast.error(d.message); } catch (error) { toast.error("Error"); } };
-  
-  // NEW: Update User Profile (API Call)
   const updateUserProfile = async (id: string, d: Partial<User>) => { 
       try {
           const res = await fetch(`${API_URL}/api/users/${id}`, {
@@ -230,7 +277,7 @@ export const CMSProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     <CMSContext.Provider value={{
       products, orders, users, categories, shippingRules, reviews, globalSettings, homeContent, aboutContent, contactContent, adminCredentials,
       addProduct, updateProduct, deleteProduct, bulkDeleteProducts, importProducts,
-      addCategory, updateCategory, deleteCategory, addSubCategory, updateUserProfile, deleteUser, toggleUserStatus, 
+      addCategory, updateCategory, deleteCategory, addSubCategory, deleteSubCategory, updateUserProfile, deleteUser, toggleUserStatus, 
       addOrder, updateOrderStatus, cancelOrder, deleteOrder,
       addReview, deleteReview,
       updateGlobalSettings, updateHomeContent, updateAboutContent, updateContactContent, updateAdminCredentials

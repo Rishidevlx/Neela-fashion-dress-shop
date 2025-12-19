@@ -29,22 +29,20 @@ const User = sequelize.define('User', {
         type: DataTypes.BOOLEAN,
         defaultValue: true
     },
-    // Profile Fields
+    // Profile Fields including DISTRICT
     phone: DataTypes.STRING,
     address: DataTypes.STRING,
     city: DataTypes.STRING,
-    district: DataTypes.STRING, // NEW: District Field
+    district: DataTypes.STRING, // Ensured this exists
     state: DataTypes.STRING,
     pincode: DataTypes.STRING
 });
 
 const seedAdmin = async () => {
     try {
-        // CORRECTION: Removed { alter: true } to prevent TiDB Unique Constraint Error
         await User.sync(); 
         
         // --- MANUAL COLUMN MIGRATION FOR TIDB ---
-        // This safely adds 'district' column if it's missing, without touching 'email'
         try {
             const [results] = await sequelize.query(
                 "SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Users' AND COLUMN_NAME = 'district' AND TABLE_SCHEMA = DATABASE()"
@@ -56,7 +54,6 @@ const seedAdmin = async () => {
                 console.log('✅ "district" column added successfully!');
             }
         } catch (colError) {
-            // Ignore error if column check fails (likely exists)
             console.log('ℹ️ Table check passed.');
         }
         // ----------------------------------------

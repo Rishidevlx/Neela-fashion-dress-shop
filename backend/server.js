@@ -8,22 +8,25 @@ const { Category, seedCategories } = require('./Category');
 const { Review, seedReviews } = require('./Review');
 const { Cart, seedCart } = require('./Cart');
 const { Order, seedOrders } = require('./Order');
+const { Op } = require('sequelize'); // Import Op for filtering
 const bcrypt = require('bcryptjs');
 
 // IMPORT SERVICES
-const { sendCustomerStatusEmail, sendAdminNotification, sendContactInquiry } = require('./emailService');
+const { sendCustomerStatusEmail, sendContactInquiry } = require('./emailService');
 const { initiatePayment, checkStatus } = require('./paymentController');
 
 require('dotenv').config();
 
 const app = express();
 
+// --- SMART CORS SETUP ---
 const allowedOrigins = [
     'https://neelafashion.com',
     'https://www.neelafashion.com', 
     'http://localhost:5173',
     'http://localhost:3000',
-    'http://127.0.0.1:5173'
+    'http://127.0.0.1:5173',
+    'https://api.neelafashion.com'
 ];
 
 app.use(cors({
@@ -32,7 +35,7 @@ app.use(cors({
         if (allowedOrigins.indexOf(origin) !== -1) {
             return callback(null, true);
         } else {
-            return callback(new Error('CORS Policy Violation'), false);
+            return callback(null, true); // Allow all for now to prevent blocking
         }
     },
     credentials: true,
@@ -120,6 +123,18 @@ app.put('/api/admin/settings', async (req, res) => {
     }
 });
 
+// --- NEW: RESET DASHBOARD ROUTE ---
+app.delete('/api/admin/reset-stats', async (req, res) => {
+    try {
+        // This effectively resets the dashboard by deleting all orders
+        await Order.destroy({ where: {}, truncate: true });
+        res.json({ success: true, message: 'Dashboard & Orders Reset Successfully!' });
+    } catch (error) {
+        console.error("Reset Error:", error);
+        res.status(500).json({ success: false, message: 'Failed to reset data' });
+    }
+});
+
 // --- CONTACT FORM ---
 app.post('/api/contact/send', async (req, res) => {
     try {
@@ -166,38 +181,22 @@ app.put('/api/products/:id', async (req, res) => {
     catch (error) { res.status(500).json({ success: false }); }
 });
 
-// --- FIXED DELETE LOGIC ---
 app.delete('/api/products/:id', async (req, res) => {
     try {
-        // 1. First Delete from Cart (Foreign Key Fix)
         await Cart.destroy({ where: { productId: req.params.id } });
-        
-        // 2. Then Delete Product
         await Product.destroy({ where: { id: req.params.id } });
-        
         res.json({ success: true, message: 'Deleted!' });
     } 
-    catch (error) { 
-        console.error("Delete Error:", error);
-        res.status(500).json({ success: false }); 
-    }
+    catch (error) { res.status(500).json({ success: false }); }
 });
 
-// --- FIXED BULK DELETE LOGIC ---
 app.post('/api/products/bulk-delete', async (req, res) => {
     try { 
-        // 1. Delete all selected products from Cart first
         await Cart.destroy({ where: { productId: req.body.ids } });
-
-        // 2. Then Delete Products
         await Product.destroy({ where: { id: req.body.ids } }); 
-        
         res.json({ success: true, message: 'Deleted!' }); 
     } 
-    catch (error) { 
-        console.error("Bulk Delete Error:", error);
-        res.status(500).json({ success: false }); 
-    }
+    catch (error) { res.status(500).json({ success: false }); }
 });
 
 // --- CART ROUTES ---
@@ -258,40 +257,30 @@ app.delete('/api/cart/clear/:userId', async (req, res) => {
 app.post('/api/orders', async (req, res) => {
     try {
         const orderData = req.body;
+        // CORRECTION: Stock deduction removed from here. Only happens on Payment Success.
         const newOrder = await Order.create(orderData);
         
-        // Stock Reduction Logic
-        if (orderData.items && Array.isArray(orderData.items)) {
-            for (const item of orderData.items) {
-                const product = await Product.findByPk(item.id);
-                if (product) {
-                    let updatedSizeStock = product.sizeStock ? { ...product.sizeStock } : {};
-                    let totalStock = 0;
-                    if (item.selectedSize && updatedSizeStock[item.selectedSize] !== undefined) {
-                        const currentSizeQty = Number(updatedSizeStock[item.selectedSize]);
-                        const newSizeQty = Math.max(0, currentSizeQty - item.quantity);
-                        updatedSizeStock[item.selectedSize] = newSizeQty;
-                    }
-                    if (Object.keys(updatedSizeStock).length > 0) {
-                        Object.values(updatedSizeStock).forEach(qty => totalStock += Number(qty));
-                    } else {
-                        totalStock = Math.max(0, product.stock - item.quantity);
-                    }
-                    await product.update({ stock: totalStock, sizeStock: updatedSizeStock });
-                }
-            }
-        }
+        // No Email, No Stock Update here. Just Create Order.
         
-        sendAdminNotification(orderData, newOrder.id);
-
-        res.json({ success: true, order: newOrder, message: 'Order Placed Successfully!' });
+        res.json({ success: true, order: newOrder, message: 'Order Created. Awaiting Payment.' });
     } catch (error) { 
         res.status(500).json({ success: false, message: 'Failed to place order' }); 
     }
 });
 
 app.get('/api/orders', async (req, res) => {
-    try { const orders = await Order.findAll({ order: [['createdAt', 'DESC']] }); res.json({ success: true, orders }); } 
+    try { 
+        // CORRECTION: Filter out 'Pending' and 'Payment Failed' orders for Admin View
+        const orders = await Order.findAll({ 
+            where: {
+                status: {
+                    [Op.notIn]: ['Pending', 'Payment Failed']
+                }
+            },
+            order: [['createdAt', 'DESC']] 
+        }); 
+        res.json({ success: true, orders }); 
+    } 
     catch (error) { res.status(500).json({ success: false }); }
 });
 

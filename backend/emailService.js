@@ -2,6 +2,9 @@ const nodemailer = require('nodemailer');
 require('dotenv').config();
 
 // --- 1. CONFIGURATION ---
+// Dynamic Frontend URL for buttons
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
+
 if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
     console.warn("⚠️ WARNING: Email settings are missing in .env file.");
 }
@@ -79,7 +82,7 @@ const sendCustomerStatusEmail = async (toEmail, customerName, orderId, status) =
                     <span class="status-badge" style="background-color: ${statusColor};">${status}</span>
                 </div>
                 <p>We are committed to delivering luxury & excellence to your doorstep.</p>
-                <div style="text-align: center;"><a href="https://neelafashion.com" class="btn">Visit Store</a></div>
+                <div style="text-align: center;"><a href="${FRONTEND_URL}" class="btn">Visit Store</a></div>
             </div>
             <div class="footer"><p>&copy; ${new Date().getFullYear()} Neela Fashion.</p></div>
         </div>
@@ -103,6 +106,7 @@ const sendCustomerStatusEmail = async (toEmail, customerName, orderId, status) =
 const sendAdminNotification = async (orderData, orderId) => {
     const adminEmail = process.env.ADMIN_EMAIL || process.env.SMTP_USER; 
 
+    // FIX: Using dynamic FRONTEND_URL here
     const htmlTemplate = `
     <!DOCTYPE html>
     <html>
@@ -120,7 +124,9 @@ const sendAdminNotification = async (orderData, orderId) => {
                     <p><strong>Payment:</strong> ${orderData.paymentMethod}</p>
                     <p><strong>Items:</strong> ${orderData.items.length}</p>
                 </div>
-                <div style="text-align: center;"><a href="http://localhost:3000/#/admin" class="btn">View in Admin Panel</a></div>
+                <div style="text-align: center;">
+                    <a href="${FRONTEND_URL}/#/admin" class="btn">View in Admin Panel</a>
+                </div>
             </div>
             <div class="footer"><p>Neela Fashion Automated System</p></div>
         </div>
@@ -140,7 +146,7 @@ const sendAdminNotification = async (orderData, orderId) => {
     }
 };
 
-// --- 5. CONTACT FORM INQUIRY LOGIC (NEW) ---
+// --- 5. CONTACT FORM INQUIRY LOGIC ---
 const sendContactInquiry = async (toEmail, inquiryData) => {
     const htmlTemplate = `
     <!DOCTYPE html>
@@ -167,9 +173,9 @@ const sendContactInquiry = async (toEmail, inquiryData) => {
 
     try {
         await transporter.sendMail({
-            from: `"Website Inquiry" <${process.env.SMTP_USER}>`, // Sent via system email
-            replyTo: inquiryData.email, // Admin can reply directly to customer
-            to: toEmail, // The email set in Admin -> Contact Content
+            from: `"Website Inquiry" <${process.env.SMTP_USER}>`, 
+            replyTo: inquiryData.email, 
+            to: toEmail, 
             subject: `📩 Inquiry: ${inquiryData.subject}`,
             html: htmlTemplate
         });
