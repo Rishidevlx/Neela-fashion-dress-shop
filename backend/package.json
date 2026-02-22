@@ -14,6 +14,7 @@
     "express": "^4.18.2",
     "mysql2": "^3.6.5",
     "nodemailer": "^6.9.7",
+    "pg-sdk-node": "https://phonepe.mycloudrepo.io/public/repositories/phonepe-pg-sdk-node/releases/v2/phonepe-pg-sdk-node-2.0.3.tgz",
     "sequelize": "^6.35.1"
   }
 }

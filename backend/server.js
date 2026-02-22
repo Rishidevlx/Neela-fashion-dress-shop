@@ -11,9 +11,8 @@ const { Order, seedOrders } = require('./Order');
 const { Op } = require('sequelize'); // Import Op for filtering
 const bcrypt = require('bcryptjs');
 
-// IMPORT SERVICES
 const { sendCustomerStatusEmail, sendContactInquiry } = require('./emailService');
-const { initiatePayment, checkStatus } = require('./paymentController');
+const { initiatePayment, checkStatus, validateWebhook } = require('./paymentController');
 
 require('dotenv').config();
 
@@ -22,7 +21,7 @@ const app = express();
 // --- SMART CORS SETUP ---
 const allowedOrigins = [
     'https://neelafashion.com',
-    'https://www.neelafashion.com', 
+    'https://www.neelafashion.com',
     'http://localhost:5173',
     'http://localhost:3000',
     'http://127.0.0.1:5173',
@@ -140,13 +139,13 @@ app.post('/api/contact/send', async (req, res) => {
     try {
         const { name, email, subject, message } = req.body;
         const contactSettings = await CMS.findOne({ where: { type: 'contact' } });
-        let toEmail = process.env.ADMIN_EMAIL; 
+        let toEmail = process.env.ADMIN_EMAIL;
 
         if (contactSettings && contactSettings.data) {
             const data = contactSettings.data;
             if (typeof data === 'object' && data.email) toEmail = data.email;
             else if (typeof data === 'string') {
-                try { toEmail = JSON.parse(data).email; } catch(e){}
+                try { toEmail = JSON.parse(data).email; } catch (e) { }
             }
         }
 
@@ -163,7 +162,7 @@ app.post('/api/contact/send', async (req, res) => {
 
 // --- PRODUCT ROUTES ---
 app.get('/api/products', async (req, res) => {
-    try { const products = await Product.findAll({ order: [['createdAt', 'DESC']] }); res.json({ success: true, products }); } 
+    try { const products = await Product.findAll({ order: [['createdAt', 'DESC']] }); res.json({ success: true, products }); }
     catch (error) { res.status(500).json({ success: false }); }
 });
 
@@ -171,13 +170,13 @@ app.post('/api/products', async (req, res) => {
     try {
         const newProduct = await Product.create(req.body);
         res.json({ success: true, product: newProduct, message: 'Product Added!' });
-    } catch (error) { 
-        res.status(500).json({ success: false, message: 'Failed to add product' }); 
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Failed to add product' });
     }
 });
 
 app.put('/api/products/:id', async (req, res) => {
-    try { const [updated] = await Product.update(req.body, { where: { id: req.params.id } }); if(updated) res.json({ success: true, message: 'Updated!' }); } 
+    try { const [updated] = await Product.update(req.body, { where: { id: req.params.id } }); if (updated) res.json({ success: true, message: 'Updated!' }); }
     catch (error) { res.status(500).json({ success: false }); }
 });
 
@@ -186,16 +185,16 @@ app.delete('/api/products/:id', async (req, res) => {
         await Cart.destroy({ where: { productId: req.params.id } });
         await Product.destroy({ where: { id: req.params.id } });
         res.json({ success: true, message: 'Deleted!' });
-    } 
+    }
     catch (error) { res.status(500).json({ success: false }); }
 });
 
 app.post('/api/products/bulk-delete', async (req, res) => {
-    try { 
+    try {
         await Cart.destroy({ where: { productId: req.body.ids } });
-        await Product.destroy({ where: { id: req.body.ids } }); 
-        res.json({ success: true, message: 'Deleted!' }); 
-    } 
+        await Product.destroy({ where: { id: req.body.ids } });
+        res.json({ success: true, message: 'Deleted!' });
+    }
     catch (error) { res.status(500).json({ success: false }); }
 });
 
@@ -207,10 +206,10 @@ app.get('/api/cart/:userId', async (req, res) => {
         const mappedCart = cartItems.map(item => {
             const plainItem = item.toJSON();
             if (!plainItem.Product) return null;
-            return { 
-                ...plainItem, 
-                Product: { ...plainItem.Product, image: plainItem.selectedImage || plainItem.Product.image }, 
-                selectedSize: plainItem.selectedSize 
+            return {
+                ...plainItem,
+                Product: { ...plainItem.Product, image: plainItem.selectedImage || plainItem.Product.image },
+                selectedSize: plainItem.selectedSize
             };
         }).filter(item => item !== null);
         res.json({ success: true, cart: mappedCart });
@@ -221,11 +220,11 @@ app.post('/api/cart/add', async (req, res) => {
     try {
         const { userId, productId, quantity, selectedImage, selectedSize } = req.body;
         const existingItem = await Cart.findOne({ where: { userId, productId, selectedSize: selectedSize || null } });
-        if (existingItem) { 
+        if (existingItem) {
             existingItem.quantity += quantity;
-            if(selectedImage) existingItem.selectedImage = selectedImage;
-            await existingItem.save(); 
-        } else { 
+            if (selectedImage) existingItem.selectedImage = selectedImage;
+            await existingItem.save();
+        } else {
             await Cart.create({ userId, productId, quantity, selectedImage, selectedSize });
         }
         res.json({ success: true });
@@ -249,7 +248,7 @@ app.delete('/api/cart/remove', async (req, res) => {
 });
 
 app.delete('/api/cart/clear/:userId', async (req, res) => {
-    try { await Cart.destroy({ where: { userId: req.params.userId } }); res.json({ success: true }); } 
+    try { await Cart.destroy({ where: { userId: req.params.userId } }); res.json({ success: true }); }
     catch (error) { res.status(500).json({ success: false }); }
 });
 
@@ -259,33 +258,33 @@ app.post('/api/orders', async (req, res) => {
         const orderData = req.body;
         // CORRECTION: Stock deduction removed from here. Only happens on Payment Success.
         const newOrder = await Order.create(orderData);
-        
+
         // No Email, No Stock Update here. Just Create Order.
-        
+
         res.json({ success: true, order: newOrder, message: 'Order Created. Awaiting Payment.' });
-    } catch (error) { 
-        res.status(500).json({ success: false, message: 'Failed to place order' }); 
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Failed to place order' });
     }
 });
 
 app.get('/api/orders', async (req, res) => {
-    try { 
+    try {
         // CORRECTION: Filter out 'Pending' and 'Payment Failed' orders for Admin View
-        const orders = await Order.findAll({ 
+        const orders = await Order.findAll({
             where: {
                 status: {
                     [Op.notIn]: ['Pending', 'Payment Failed']
                 }
             },
-            order: [['createdAt', 'DESC']] 
-        }); 
-        res.json({ success: true, orders }); 
-    } 
+            order: [['createdAt', 'DESC']]
+        });
+        res.json({ success: true, orders });
+    }
     catch (error) { res.status(500).json({ success: false }); }
 });
 
 app.put('/api/orders/:id/status', async (req, res) => {
-    try { 
+    try {
         const { id } = req.params;
         const { status } = req.body;
         await Order.update({ status }, { where: { id } });
@@ -296,34 +295,34 @@ app.put('/api/orders/:id/status', async (req, res) => {
             if (order.billingDetails) {
                 if (typeof order.billingDetails === 'object') email = order.billingDetails.email;
                 else if (typeof order.billingDetails === 'string') {
-                    try { const details = JSON.parse(order.billingDetails); email = details.email; } catch (e) {}
+                    try { const details = JSON.parse(order.billingDetails); email = details.email; } catch (e) { }
                 }
             }
             if (email) sendCustomerStatusEmail(email, name, id, status);
         }
-        res.json({ success: true }); 
-    } 
+        res.json({ success: true });
+    }
     catch (error) { res.status(500).json({ success: false }); }
 });
 
 app.put('/api/orders/:id/cancel', async (req, res) => {
-    try { 
+    try {
         const { id } = req.params;
-        await Order.update({ status: 'Cancelled' }, { where: { id } }); 
+        await Order.update({ status: 'Cancelled' }, { where: { id } });
         const order = await Order.findByPk(id);
         let email = null;
         if (order && order.billingDetails) {
-             if (typeof order.billingDetails === 'object') email = order.billingDetails.email;
-             else try { email = JSON.parse(order.billingDetails).email; } catch(e){}
+            if (typeof order.billingDetails === 'object') email = order.billingDetails.email;
+            else try { email = JSON.parse(order.billingDetails).email; } catch (e) { }
         }
-        if(email) sendCustomerStatusEmail(email, order.userName, id, "Cancelled");
-        res.json({ success: true }); 
-    } 
+        if (email) sendCustomerStatusEmail(email, order.userName, id, "Cancelled");
+        res.json({ success: true });
+    }
     catch (error) { res.status(500).json({ success: false }); }
 });
 
 app.delete('/api/orders/:id', async (req, res) => {
-    try { await Order.destroy({ where: { id: req.params.id } }); res.json({ success: true, message: 'Order Deleted Permanently' }); } 
+    try { await Order.destroy({ where: { id: req.params.id } }); res.json({ success: true, message: 'Order Deleted Permanently' }); }
     catch (error) { res.status(500).json({ success: false }); }
 });
 
@@ -346,7 +345,7 @@ app.put('/api/categories/:name', async (req, res) => {
     } catch { res.status(500).json({}); }
 });
 app.post('/api/categories/:name/sub', async (req, res) => {
-    try { const category = await Category.findByPk(req.params.name); if(category) { const subs = category.subCategories || []; if(!subs.includes(req.body.subCategory)) { await category.update({ subCategories: [...subs, req.body.subCategory] }); res.json({ success: true }); } } } catch { res.status(500).json({}); }
+    try { const category = await Category.findByPk(req.params.name); if (category) { const subs = category.subCategories || []; if (!subs.includes(req.body.subCategory)) { await category.update({ subCategories: [...subs, req.body.subCategory] }); res.json({ success: true }); } } } catch { res.status(500).json({}); }
 });
 app.delete('/api/categories/:name', async (req, res) => { try { await Category.destroy({ where: { name: req.params.name } }); res.json({ success: true }); } catch { res.status(500).json({}); } });
 
@@ -361,17 +360,18 @@ app.post('/api/reviews', async (req, res) => { try { const newReview = await Rev
 app.delete('/api/reviews/:id', async (req, res) => { try { await Review.destroy({ where: { id: req.params.id } }); res.json({ success: true }); } catch { res.status(500).json({}); } });
 
 app.get('/api/cms/home', async (req, res) => { try { const c = await CMS.findOne({ where: { type: 'home' } }); res.json({ success: true, data: c?.data }); } catch { res.status(500).json({}); } });
-app.put('/api/cms/home', async (req, res) => { try { const [u] = await CMS.update({ data: req.body.data }, { where: { type: 'home' } }); if(!u) await CMS.create({type:'home', data: req.body.data}); res.json({ success: true }); } catch { res.status(500).json({}); } });
+app.put('/api/cms/home', async (req, res) => { try { const [u] = await CMS.update({ data: req.body.data }, { where: { type: 'home' } }); if (!u) await CMS.create({ type: 'home', data: req.body.data }); res.json({ success: true }); } catch { res.status(500).json({}); } });
 app.get('/api/cms/global-settings', async (req, res) => { try { const c = await CMS.findOne({ where: { type: 'global_settings' } }); res.json({ success: true, data: c?.data }); } catch { res.status(500).json({}); } });
-app.put('/api/cms/global-settings', async (req, res) => { try { const [u] = await CMS.update({ data: req.body.data }, { where: { type: 'global_settings' } }); if(!u) await CMS.create({type:'global_settings', data: req.body.data}); res.json({ success: true }); } catch { res.status(500).json({}); } });
+app.put('/api/cms/global-settings', async (req, res) => { try { const [u] = await CMS.update({ data: req.body.data }, { where: { type: 'global_settings' } }); if (!u) await CMS.create({ type: 'global_settings', data: req.body.data }); res.json({ success: true }); } catch { res.status(500).json({}); } });
 app.get('/api/cms/about', async (req, res) => { try { const c = await CMS.findOne({ where: { type: 'about' } }); res.json({ success: true, data: c?.data }); } catch { res.status(500).json({}); } });
-app.put('/api/cms/about', async (req, res) => { try { const [u] = await CMS.update({ data: req.body.data }, { where: { type: 'about' } }); if(!u) await CMS.create({type:'about', data: req.body.data}); res.json({ success: true }); } catch { res.status(500).json({}); } });
+app.put('/api/cms/about', async (req, res) => { try { const [u] = await CMS.update({ data: req.body.data }, { where: { type: 'about' } }); if (!u) await CMS.create({ type: 'about', data: req.body.data }); res.json({ success: true }); } catch { res.status(500).json({}); } });
 app.get('/api/cms/contact', async (req, res) => { try { const c = await CMS.findOne({ where: { type: 'contact' } }); res.json({ success: true, data: c?.data }); } catch { res.status(500).json({}); } });
-app.put('/api/cms/contact', async (req, res) => { try { const [u] = await CMS.update({ data: req.body.data }, { where: { type: 'contact' } }); if(!u) await CMS.create({type:'contact', data: req.body.data}); res.json({ success: true }); } catch { res.status(500).json({}); } });
+app.put('/api/cms/contact', async (req, res) => { try { const [u] = await CMS.update({ data: req.body.data }, { where: { type: 'contact' } }); if (!u) await CMS.create({ type: 'contact', data: req.body.data }); res.json({ success: true }); } catch { res.status(500).json({}); } });
 
 // --- PHONEPE PAYMENT ROUTES ---
 app.post('/api/payment/pay', initiatePayment);
-app.post('/api/payment/status/:orderId', checkStatus);
+app.all('/api/payment/status/:orderId', checkStatus); // Changed to app.all to handle both GET and POST redirects
+app.post('/api/payment/callback', validateWebhook); // New Webhook Route
 
 const PORT = process.env.PORT || 5000;
 
@@ -381,8 +381,8 @@ const startServer = async () => {
         console.log('✅ Connected to TiDB Database successfully!');
         await seedAdmin();
         await seedProducts();
-        await seedCategories(); 
-        await seedCMS(); 
+        await seedCategories();
+        await seedCMS();
         await seedReviews();
         await seedCart();
         await seedOrders();

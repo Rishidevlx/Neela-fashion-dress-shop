@@ -1,19 +1,29 @@
-const crypto = require('crypto');
-const axios = require('axios');
+const { StandardCheckoutClient, Env, CreateSdkOrderRequest } = require('pg-sdk-node');
 const { Order } = require('./Order');
 const { Cart } = require('./Cart');
 const { Product } = require('./Product');
 const { sendCustomerStatusEmail, sendAdminNotification } = require('./emailService');
 require('dotenv').config();
 
-// --- LOAD CREDENTIALS (V2 PRODUCTION) ---
-const MERCHANT_ID = process.env.PHONEPE_MERCHANT_ID;
+// --- LOAD CREDENTIALS ---
+const MERCHANT_ID = process.env.PHONEPE_MERCHANT_ID; // Used for env detection
 const CLIENT_ID = process.env.PHONEPE_CLIENT_ID;
 const CLIENT_SECRET = process.env.PHONEPE_CLIENT_SECRET;
-const SALT_KEY = process.env.PHONEPE_SALT_KEY || process.env.PHONEPE_CLIENT_SECRET; // Fallback if regular salt key missing
-const SALT_INDEX = process.env.PHONEPE_SALT_INDEX || 1;
+const CLIENT_VERSION = parseInt(process.env.PHONEPE_CLIENT_VERSION || '1');
 
-const PHONEPE_HOST_URL = process.env.PHONEPE_HOST_URL || "https://api.phonepe.com/apis/hermes";
+// For Webhooks (Optional but recommended in docs)
+const CALLBACK_USERNAME = process.env.PHONEPE_CALLBACK_USER || "";
+const CALLBACK_PASSWORD = process.env.PHONEPE_CALLBACK_PASSWORD || "";
+
+// --- ROBUST ENVIRONMENT DETECTION ---
+// If MERCHANT_ID starts with 'M' (official production prefix) or NODE_ENV is production
+const isProduction = (MERCHANT_ID && MERCHANT_ID.startsWith('M')) || process.env.NODE_ENV === 'production';
+const ENV = isProduction ? Env.PRODUCTION : Env.SANDBOX;
+
+console.log(`📡 PhonePe SDK Mode: ${isProduction ? 'PRODUCTION 🚀' : 'SANDBOX 🧪'}`);
+
+// Initialize SDK Client (Verified Signature: clientId, clientSecret, clientVersion, env)
+const client = StandardCheckoutClient.getInstance(CLIENT_ID, CLIENT_SECRET, CLIENT_VERSION, ENV);
 
 // --- URL HELPERS ---
 const cleanUrl = (url) => {
@@ -28,160 +38,70 @@ const cleanUrl = (url) => {
 const BACKEND_URL = cleanUrl(process.env.BACKEND_URL || "https://api.neelafashion.com");
 const FRONTEND_URL = cleanUrl(process.env.FRONTEND_URL || "https://neelafashion.com");
 
-let cachedToken = null;
-let tokenExpiry = 0;
-
-// --- 1. GET ACCESS TOKEN (V2 AUTH) ---
-const getAccessToken = async () => {
-    try {
-        // Return cached token if valid (buffer of 60 seconds)
-        if (cachedToken && Date.now() < tokenExpiry - 60000) {
-            return cachedToken;
-        }
-
-        console.log("🔄 Generating New PhonePe Access Token...");
-
-        const params = new URLSearchParams();
-        params.append('grant_type', 'client_credentials');
-        params.append('client_id', CLIENT_ID);
-        params.append('client_secret', CLIENT_SECRET);
-        params.append('client_version', '1'); // REQUIRED for V2
-
-        // Auth URL for Production
-        const authUrl = "https://api.phonepe.com/apis/hermes/v1/oauth/token";
-
-        const response = await axios.post(authUrl, data, {
-            headers: {
-                'Content-Type': 'application/json',
-            }
-        });
-
-        if (response.data && response.data.access_token) {
-            cachedToken = response.data.access_token;
-            // Set expiry based on response (expires_in is in seconds)
-            tokenExpiry = Date.now() + (response.data.expires_in * 1000);
-            console.log("✅ Access Token Generated Successfully");
-            return cachedToken;
-        } else {
-            throw new Error("No access token in response");
-        }
-
-    } catch (error) {
-        console.error("❌ Auth Token Error:", error.response ? error.response.data : error.message);
-        throw new Error("Failed to authenticate with PhonePe");
-    }
-};
-
-// --- 2. PAYMENT INITIATE (V2) ---
+/**
+ * 1. PAYMENT INITIATE (Standard Checkout)
+ */
 const initiatePayment = async (req, res) => {
     try {
         const { orderId, amount, userId, mobileNumber } = req.body;
+        console.log(`🚀 Initiating Official SDK Payment for Order: ${orderId}, Amount: ${amount}`);
 
-        if (!MERCHANT_ID || !CLIENT_ID || !CLIENT_SECRET) {
-            return res.status(500).json({ success: false, message: "Server Error: Merchant Credentials Missing" });
+        if (!CLIENT_ID || !CLIENT_SECRET) {
+            console.error("❌ PHONEPE_CLIENT_ID or PHONEPE_CLIENT_SECRET missing in .env");
+            return res.status(500).json({ success: false, message: "Server Error: Payment Credentials Missing" });
         }
 
-        // 1. Get Token First
-        const accessToken = await getAccessToken();
-
-        // 2. Prepare Payload
         const redirectUrl = `${BACKEND_URL}/api/payment/status/${orderId}`;
-        const callbackUrl = `${BACKEND_URL}/api/payment/callback`;
+        const amountInPaise = Math.round(Number(amount) * 100);
 
-        const data = {
-            merchantId: MERCHANT_ID,
-            merchantTransactionId: orderId,
-            merchantUserId: userId || "GUEST",
-            amount: Math.round(Number(amount) * 100),
-            redirectUrl: redirectUrl,
-            redirectMode: "POST",
-            callbackUrl: callbackUrl,
-            mobileNumber: mobileNumber || "9999999999",
-            paymentInstrument: {
-                type: "PAY_PAGE"
-            }
-        };
+        // Use verified Builder methods: merchantOrderId, amount, redirectUrl
+        const request = CreateSdkOrderRequest.StandardCheckoutBuilder()
+            .merchantOrderId(orderId)
+            .amount(amountInPaise)
+            .redirectUrl(redirectUrl)
+            .message(`Payment for Order #${orderId}`) // Detail added from docs
+            .expireAfter(3600) // 1 Hour expiry (from docs)
+            .build();
 
-        const payload = JSON.stringify(data);
-        const payloadMain = Buffer.from(payload).toString('base64');
+        console.log("👉 Calling client.pay()...");
+        const response = await client.pay(request);
 
-        // 3. Generate Checksum (Still required for Pay API X-VERIFY)
-        const stringToHash = payloadMain + "/pg/v1/pay" + SALT_KEY;
-        const sha256 = crypto.createHash('sha256').update(stringToHash).digest('hex');
-        const checksum = sha256 + "###" + SALT_INDEX;
-
-        // 4. Send Request (With Token)
-        const options = {
-            method: 'POST',
-            url: `${PHONEPE_HOST_URL}/pg/v1/pay`,
-            headers: {
-                accept: 'application/json',
-                'Content-Type': 'application/json',
-                'X-VERIFY': checksum,
-                'Authorization': `Bearer ${accessToken}` // NEW V2 HEADER
-            },
-            data: {
-                request: payloadMain
-            }
-        };
-
-        const response = await axios.request(options);
-
-        if (response.data.success) {
+        if (response && response.redirectUrl) {
+            console.log("✅ Payment Redirect URL Generated.");
             res.json({
                 success: true,
-                url: response.data.data.instrumentResponse.redirectInfo.url
+                url: response.redirectUrl
             });
         } else {
-            console.error("❌ PhonePe Error:", JSON.stringify(response.data));
-            res.status(400).json({ success: false, message: 'Payment Failed', details: response.data });
+            console.error("❌ SDK Response Error: Redirect URL missing");
+            res.status(400).json({ success: false, message: 'Payment Initiation Failed (SDK Error)' });
         }
 
     } catch (error) {
-        console.error("🔥 Exception:", error.response ? error.response.data : error.message);
-        res.status(500).json({ success: false, message: "Payment Gateway Connection Error" });
+        console.error("🔥 SDK Exception (initiatePayment):", error.message);
+        res.status(500).json({ success: false, message: "Payment Gateway Connection Error", error: error.message });
     }
 };
 
-// --- 3. CHECK STATUS (V2) ---
+/**
+ * 2. CHECK STATUS (Post-Redirect)
+ */
 const checkStatus = async (req, res) => {
-    const { orderId } = req.params;
+    // PhonePe might redirect via POST (req.body) or GET (req.params)
+    const orderId = req.params.orderId || req.body.transactionId || req.body.merchantOrderId;
+    console.log(`🔍 Official SDK Status Check for Order: ${orderId}`);
 
     try {
-        // 1. Get Token
-        const accessToken = await getAccessToken();
+        const response = await client.getOrderStatus(orderId);
 
-        // 2. Prepare Checksum
-        const stringToHash = `/pg/v1/status/${MERCHANT_ID}/${orderId}` + SALT_KEY;
-        const sha256 = crypto.createHash('sha256').update(stringToHash).digest('hex');
-        const checksum = sha256 + "###" + SALT_INDEX;
-
-        // 3. Call API (With Token)
-        const options = {
-            method: 'GET',
-            url: `${PHONEPE_HOST_URL}/pg/v1/status/${MERCHANT_ID}/${orderId}`,
-            headers: {
-                accept: 'application/json',
-                'Content-Type': 'application/json',
-                'X-VERIFY': checksum,
-                'X-MERCHANT-ID': MERCHANT_ID,
-                'Authorization': `Bearer ${accessToken}` // NEW V2 HEADER
-            }
-        };
-
-        const response = await axios.request(options);
-
-        if (response.data.success && response.data.code === 'PAYMENT_SUCCESS') {
-
-            // --- SUCCESS LOGIC (SAME AS BEFORE) ---
-            await Order.update(
-                { status: 'Processing', paymentMethod: 'Prepaid (PhonePe)' },
-                { where: { id: orderId } }
-            );
-
+        // Official SDK mapping: COMPLETED, FAILED, PENDING
+        if (response && response.state === 'COMPLETED') {
             const order = await Order.findByPk(orderId);
 
-            if (order) {
+            if (order && order.status !== 'Processing') {
+                // Update Order
+                await order.update({ status: 'Processing', paymentMethod: 'Prepaid (PhonePe SDK)' });
+
                 // Deduct Stock
                 if (order.items && Array.isArray(order.items)) {
                     for (const item of order.items) {
@@ -191,9 +111,7 @@ const checkStatus = async (req, res) => {
                             let totalStock = 0;
 
                             if (item.selectedSize && updatedSizeStock[item.selectedSize] !== undefined) {
-                                const currentSizeQty = Number(updatedSizeStock[item.selectedSize]);
-                                const newSizeQty = Math.max(0, currentSizeQty - item.quantity);
-                                updatedSizeStock[item.selectedSize] = newSizeQty;
+                                updatedSizeStock[item.selectedSize] = Math.max(0, Number(updatedSizeStock[item.selectedSize]) - item.quantity);
                             }
 
                             if (Object.keys(updatedSizeStock).length > 0) {
@@ -212,13 +130,11 @@ const checkStatus = async (req, res) => {
                     await Cart.destroy({ where: { userId: order.userId } });
                 }
 
-                // Send Emails
+                // Send Confirmations
                 let email = null;
                 if (order.billingDetails) {
                     if (typeof order.billingDetails === 'object') email = order.billingDetails.email;
-                    else if (typeof order.billingDetails === 'string') {
-                        try { const details = JSON.parse(order.billingDetails); email = details.email; } catch (e) { }
-                    }
+                    else try { email = JSON.parse(order.billingDetails).email; } catch (e) { }
                 }
 
                 if (email) await sendCustomerStatusEmail(email, order.userName, orderId, "Received");
@@ -226,19 +142,73 @@ const checkStatus = async (req, res) => {
             }
 
             return res.redirect(`${FRONTEND_URL}/#/order-success?id=${orderId}&status=success`);
-        } else {
-            // Payment Failed
-            await Order.update(
-                { status: 'Payment Failed' },
-                { where: { id: orderId } }
-            );
+
+        } else if (response && response.state === 'FAILED') {
+            await Order.update({ status: 'Payment Failed' }, { where: { id: orderId } });
             return res.redirect(`${FRONTEND_URL}/#/checkout?status=failed`);
+        } else {
+            console.log(`⏳ SDK Status: ${response ? response.state : 'PENDING'}`);
+            return res.redirect(`${FRONTEND_URL}/#/checkout?status=pending`);
         }
 
     } catch (error) {
-        console.error("Status Check Error:", error.response ? error.response.data : error.message);
+        console.error("🔥 SDK Exception (checkStatus):", error.message);
         return res.redirect(`${FRONTEND_URL}/#/checkout?status=error`);
     }
 };
 
-module.exports = { initiatePayment, checkStatus };
+/**
+ * 3. WEBHOOK HANDLING (S2S Callback)
+ * PhonePe calls this URL directly to notify server about payment completion.
+ */
+const validateWebhook = async (req, res) => {
+    console.log("🔔 Webhook received from PhonePe");
+    try {
+        const authHeader = req.headers['authorization'];
+        const responseBody = JSON.stringify(req.body);
+
+        // Official SDK validation method
+        const callbackResponse = client.validateCallback(
+            CALLBACK_USERNAME,
+            CALLBACK_PASSWORD,
+            authHeader,
+            responseBody
+        );
+
+        if (callbackResponse && callbackResponse.payload) {
+            const { orderId, state } = callbackResponse.payload;
+            console.log(`✅ Webhook Validated. Order: ${orderId}, State: ${state}`);
+
+            // Webhook success logic here
+            return res.status(200).send("OK");
+        }
+    } catch (error) {
+        console.error("❌ Webhook Validation Failed:", error.message);
+        return res.status(401).send("Unauthorized");
+    }
+};
+
+/**
+ * 4. INITIATE REFUND (Helper)
+ */
+const initiateRefund = async (orderId, amount) => {
+    try {
+        const { RefundRequest } = require('pg-sdk-node');
+        const refundId = `REFUND_${orderId}_${Date.now()}`;
+
+        const request = RefundRequest.builder()
+            .merchantRefundId(refundId)
+            .originalMerchantOrderId(orderId)
+            .amount(Math.round(amount * 100))
+            .build();
+
+        const response = await client.refund(request);
+        console.log(`💸 Refund Processed. State: ${response.state}`);
+        return response;
+    } catch (error) {
+        console.error("❌ Refund Error:", error.message);
+        throw error;
+    }
+};
+
+module.exports = { initiatePayment, checkStatus, validateWebhook, initiateRefund };
