@@ -41,8 +41,13 @@ const Order = sequelize.define('Order', {
         allowNull: false
     },
     notes: {
-        type: DataTypes.TEXT, // New field for Order Notes
+        type: DataTypes.TEXT,
         allowNull: true
+    },
+    orderSource: {
+        type: DataTypes.STRING, // 'normal' or 'manual'
+        defaultValue: 'normal',
+        allowNull: false
     }
 });
 

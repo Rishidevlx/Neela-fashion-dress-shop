@@ -39,6 +39,73 @@ const BACKEND_URL = cleanUrl(process.env.BACKEND_URL || "https://api.neelafashio
 const FRONTEND_URL = cleanUrl(process.env.FRONTEND_URL || "https://neelafashion.com");
 
 /**
+ * 0. REUSABLE ORDER PROCESSING HELPER (Idempotent)
+ * This function handles stock reduction and notifications.
+ * Safe to be called multiple times (via redirect or webhook).
+ */
+const processSuccessfulOrder = async (orderId) => {
+    try {
+        const order = await Order.findByPk(orderId);
+        
+        // Return early if already processed to prevent double-deduction
+        if (!order || order.status === 'Processing' || order.status === 'Delivered' || order.status === 'Shipped') {
+            console.log(`ℹ️ Order ${orderId} is already processed or not found. Target status: Processing.`);
+            return true;
+        }
+
+        // Update Order
+        await order.update({ status: 'Processing', paymentMethod: 'Prepaid (PhonePe SDK)' });
+
+        // Deduct Stock
+        if (order.items && Array.isArray(order.items)) {
+            for (const item of order.items) {
+                const product = await Product.findByPk(item.id || item.productId);
+                if (product) {
+                    let updatedSizeStock = product.sizeStock ? { ...product.sizeStock } : {};
+                    let totalStock = 0;
+                    
+                    const size = item.selectedSize || item.size;
+                    const qty = item.quantity || item.qty;
+
+                    if (size && updatedSizeStock[size] !== undefined) {
+                        updatedSizeStock[size] = Math.max(0, Number(updatedSizeStock[size]) - qty);
+                    }
+
+                    if (Object.keys(updatedSizeStock).length > 0) {
+                        Object.values(updatedSizeStock).forEach(q => totalStock += Number(q));
+                    } else {
+                        totalStock = Math.max(0, product.stock - qty);
+                    }
+
+                    await product.update({ stock: totalStock, sizeStock: updatedSizeStock });
+                }
+            }
+        }
+
+        // Clear Cart
+        if (order.userId && order.userId !== 'guest' && order.userId !== 'manual') {
+            await Cart.destroy({ where: { userId: order.userId } });
+        }
+
+        // Send Confirmations
+        let email = null;
+        if (order.billingDetails) {
+            if (typeof order.billingDetails === 'object') email = order.billingDetails.email;
+            else try { email = JSON.parse(order.billingDetails).email; } catch (e) { }
+        }
+
+        if (email) await sendCustomerStatusEmail(email, order.userName, orderId, "Received");
+        await sendAdminNotification(order, orderId);
+
+        console.log(`✅ Order ${orderId} successfully processed and fulfilled!`);
+        return true;
+    } catch (error) {
+        console.error(`❌ Error in processSuccessfulOrder for ${orderId}:`, error);
+        return false;
+    }
+};
+
+/**
  * 1. PAYMENT INITIATE (Standard Checkout)
  */
 const initiatePayment = async (req, res) => {
@@ -96,50 +163,9 @@ const checkStatus = async (req, res) => {
 
         // Official SDK mapping: COMPLETED, FAILED, PENDING
         if (response && response.state === 'COMPLETED') {
-            const order = await Order.findByPk(orderId);
-
-            if (order && order.status !== 'Processing') {
-                // Update Order
-                await order.update({ status: 'Processing', paymentMethod: 'Prepaid (PhonePe SDK)' });
-
-                // Deduct Stock
-                if (order.items && Array.isArray(order.items)) {
-                    for (const item of order.items) {
-                        const product = await Product.findByPk(item.id);
-                        if (product) {
-                            let updatedSizeStock = product.sizeStock ? { ...product.sizeStock } : {};
-                            let totalStock = 0;
-
-                            if (item.selectedSize && updatedSizeStock[item.selectedSize] !== undefined) {
-                                updatedSizeStock[item.selectedSize] = Math.max(0, Number(updatedSizeStock[item.selectedSize]) - item.quantity);
-                            }
-
-                            if (Object.keys(updatedSizeStock).length > 0) {
-                                Object.values(updatedSizeStock).forEach(qty => totalStock += Number(qty));
-                            } else {
-                                totalStock = Math.max(0, product.stock - item.quantity);
-                            }
-
-                            await product.update({ stock: totalStock, sizeStock: updatedSizeStock });
-                        }
-                    }
-                }
-
-                // Clear Cart
-                if (order.userId && order.userId !== 'guest') {
-                    await Cart.destroy({ where: { userId: order.userId } });
-                }
-
-                // Send Confirmations
-                let email = null;
-                if (order.billingDetails) {
-                    if (typeof order.billingDetails === 'object') email = order.billingDetails.email;
-                    else try { email = JSON.parse(order.billingDetails).email; } catch (e) { }
-                }
-
-                if (email) await sendCustomerStatusEmail(email, order.userName, orderId, "Received");
-                await sendAdminNotification(order, orderId);
-            }
+            
+            // 🛑 Call our new reusable, safe function
+            await processSuccessfulOrder(orderId);
 
             return res.redirect(`${FRONTEND_URL}/#/order-success?id=${orderId}&status=success`);
 
@@ -180,6 +206,13 @@ const validateWebhook = async (req, res) => {
             console.log(`✅ Webhook Validated. Order: ${orderId}, State: ${state}`);
 
             // Webhook success logic here
+            if (state === 'COMPLETED') {
+                // 🛑 Call our new reusable, safe function
+                await processSuccessfulOrder(orderId);
+            } else if (state === 'FAILED') {
+                await Order.update({ status: 'Payment Failed' }, { where: { id: orderId } });
+            }
+
             return res.status(200).send("OK");
         }
     } catch (error) {

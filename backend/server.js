@@ -253,6 +253,47 @@ app.delete('/api/cart/clear/:userId', async (req, res) => {
 });
 
 // --- ORDER ROUTES ---
+
+// Helper: restore stock when an order is cancelled
+async function restoreStockForOrder(orderId, force = false) {
+    try {
+        const order = await Order.findByPk(orderId);
+        if (!order) return { ok: false, reason: 'Order not found' };
+        // Only restore if order was in an active (stock-deducted) state
+        const nonDeductedStatuses = ['Pending', 'Payment Failed', 'Cancelled'];
+        if (!force && nonDeductedStatuses.includes(order.status)) return { ok: false, reason: 'Stock was never deducted for this status' };
+
+        let items = order.items;
+        if (typeof items === 'string') { try { items = JSON.parse(items); } catch { return { ok: false, reason: 'Could not parse items' }; } }
+        if (!Array.isArray(items) || items.length === 0) return { ok: false, reason: 'No items found' };
+
+        for (const item of items) {
+            const productId = item.id || item.productId;
+            const size = item.selectedSize || item.size || null;
+            const qty = Number(item.quantity || item.qty || 0);
+            if (!productId || qty <= 0) continue;
+
+            const product = await Product.findByPk(productId);
+            if (!product) { console.warn(`Product ${productId} not found, skipping`); continue; }
+
+            const updatedSizeStock = { ...(product.sizeStock || {}) };
+            if (size && updatedSizeStock[size] !== undefined) {
+                updatedSizeStock[size] = updatedSizeStock[size] + qty;
+            } else if (size) {
+                updatedSizeStock[size] = qty; // size key missing — add it back
+            }
+            const newTotal = product.stock + qty;
+            await product.update({ stock: newTotal, sizeStock: updatedSizeStock });
+            console.log(`  → Restored ${qty}x "${product.name}" ${size ? `(Size ${size})` : ''} | New total: ${newTotal}`);
+        }
+        console.log(`[Stock Restored] Order ${orderId} — stock added back.`);
+        return { ok: true };
+    } catch (err) {
+        console.error('[Stock Restore Error]', err.message);
+        return { ok: false, reason: err.message };
+    }
+}
+
 app.post('/api/orders', async (req, res) => {
     try {
         const orderData = req.body;
@@ -269,13 +310,8 @@ app.post('/api/orders', async (req, res) => {
 
 app.get('/api/orders', async (req, res) => {
     try {
-        // CORRECTION: Filter out 'Pending' and 'Payment Failed' orders for Admin View
+        // Now fetching ALL orders, including Pending and Payment Failed
         const orders = await Order.findAll({
-            where: {
-                status: {
-                    [Op.notIn]: ['Pending', 'Payment Failed']
-                }
-            },
             order: [['createdAt', 'DESC']]
         });
         res.json({ success: true, orders });
@@ -287,6 +323,12 @@ app.put('/api/orders/:id/status', async (req, res) => {
     try {
         const { id } = req.params;
         const { status } = req.body;
+
+        // Restore stock if admin is cancelling the order
+        if (status === 'Cancelled') {
+            await restoreStockForOrder(id);
+        }
+
         await Order.update({ status }, { where: { id } });
         const order = await Order.findByPk(id);
         if (order) {
@@ -308,6 +350,8 @@ app.put('/api/orders/:id/status', async (req, res) => {
 app.put('/api/orders/:id/cancel', async (req, res) => {
     try {
         const { id } = req.params;
+        // Restore stock before marking as cancelled
+        await restoreStockForOrder(id);
         await Order.update({ status: 'Cancelled' }, { where: { id } });
         const order = await Order.findByPk(id);
         let email = null;
@@ -325,6 +369,167 @@ app.delete('/api/orders/:id', async (req, res) => {
     try { await Order.destroy({ where: { id: req.params.id } }); res.json({ success: true, message: 'Order Deleted Permanently' }); }
     catch (error) { res.status(500).json({ success: false }); }
 });
+
+// Force-restore stock for an already-cancelled order (one-time manual fix)
+app.post('/api/admin/restore-stock/:orderId', async (req, res) => {
+    try {
+        const { orderId } = req.params;
+        const result = await restoreStockForOrder(orderId, true); // force=true bypasses the status guard
+        if (result.ok) {
+            res.json({ success: true, message: `Stock restored for order ${orderId}` });
+        } else {
+            res.status(400).json({ success: false, message: result.reason });
+        }
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+
+// --- MANUAL ORDER ENTRY (Admin Panel) ---
+app.post('/api/admin/manual-order', async (req, res) => {
+    try {
+        const { billingDetails, shippingDetails, items, paymentMethod, paymentStatus, notes } = req.body;
+
+        if (!billingDetails || !items || items.length === 0) {
+            return res.status(400).json({ success: false, message: 'Billing details and items are required.' });
+        }
+
+        // 1. Validate & fetch products, check stock
+        const productRecords = [];
+        for (const item of items) {
+            const product = await Product.findByPk(item.productId);
+            if (!product) return res.status(404).json({ success: false, message: `Product not found: ID ${item.productId}` });
+
+            const sizeStock = product.sizeStock || {};
+            const currentSizeStock = item.size ? (sizeStock[item.size] || 0) : product.stock;
+
+            if (item.qty > currentSizeStock) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Insufficient stock for "${product.name}"${item.size ? ` (Size: ${item.size})` : ''}. Available: ${currentSizeStock}`
+                });
+            }
+            productRecords.push({ product, item });
+        }
+
+        // 2. Calculate shipping (same logic as Checkout.tsx)
+        const targetState = (shippingDetails || billingDetails).state;
+        let totalShipping = 0;
+
+        let pranjulNightyQty = 0;
+        let pranjulCollectionQty = 0;
+        const otherCategoryGroups = {};
+
+        for (const { product, item } of productRecords) {
+            const cat = (product.category || '').toLowerCase();
+            const sub = (product.subCategory || '').toLowerCase();
+            const isCategory = (keyword) => cat.includes(keyword) || sub.includes(keyword);
+
+            if (isCategory('pranjul') && isCategory('nighty')) {
+                pranjulNightyQty += item.qty;
+            } else if (isCategory('pranjul') && (isCategory('collection') || isCategory('collecion'))) {
+                pranjulCollectionQty += item.qty;
+            } else {
+                otherCategoryGroups[product.category] = (otherCategoryGroups[product.category] || 0) + item.qty;
+            }
+        }
+
+        if (pranjulNightyQty > 0) {
+            if (targetState === 'Tamil Nadu') {
+                totalShipping += pranjulNightyQty >= 3 ? 0 : 30;
+            } else {
+                totalShipping += pranjulNightyQty <= 4 ? 45 : 45 + ((pranjulNightyQty - 4) * 10);
+            }
+        }
+
+        if (pranjulCollectionQty > 0) {
+            if (targetState === 'Tamil Nadu') totalShipping += 40 + ((pranjulCollectionQty - 1) * 20);
+            else totalShipping += 65 + ((pranjulCollectionQty - 1) * 25);
+        }
+
+        for (const [category, qty] of Object.entries(otherCategoryGroups)) {
+            const categoryRecord = await Category.findByPk(category);
+            const rules = categoryRecord ? (categoryRecord.shippingRules || []) : [];
+            let matchedRule;
+
+            if (rules.length > 0) {
+                matchedRule = rules.find(r => r.state === targetState && qty >= r.minQty && qty <= r.maxQty);
+                if (!matchedRule && targetState !== 'Tamil Nadu') matchedRule = rules.find(r => r.state === 'Other States' && qty >= r.minQty && qty <= r.maxQty);
+                if (!matchedRule) matchedRule = rules.find(r => r.state === 'All States' && qty >= r.minQty && qty <= r.maxQty);
+
+                if (matchedRule) {
+                    let cost = matchedRule.cost;
+                    if (matchedRule.type === 'per_piece') cost = matchedRule.cost * qty;
+                    else if (matchedRule.type === 'every_2') cost = matchedRule.cost * Math.ceil(qty / 2);
+                    else if (matchedRule.type === 'every_3') cost = matchedRule.cost * Math.ceil(qty / 3);
+                    else if (matchedRule.type === 'every_10') cost = matchedRule.cost * Math.ceil(qty / 10);
+                    totalShipping += cost;
+                } else totalShipping += 50;
+            } else totalShipping += 50;
+        }
+
+        // 3. Build order items (CartItem shape)
+        let subtotal = 0;
+        const orderItems = productRecords.map(({ product, item }) => {
+            const unitPrice = item.size && product.sizePrices && product.sizePrices[item.size]
+                ? product.sizePrices[item.size]
+                : (product.discountPrice || product.price);
+            subtotal += unitPrice * item.qty;
+            return {
+                id: product.id,
+                name: product.name,
+                category: product.category,
+                subCategory: product.subCategory || '',
+                price: product.price,
+                discountPrice: product.discountPrice || null,
+                image: product.image,
+                quantity: item.qty,
+                selectedSize: item.size || null,
+                stock: product.stock,
+                sizeStock: product.sizeStock
+            };
+        });
+
+        const orderTotal = Number((subtotal + totalShipping).toFixed(2));
+
+        // 4. Generate order ID
+        const orderId = 'MAN-' + Date.now().toString().slice(-5);
+
+        // 5. Deduct stock
+        for (const { product, item } of productRecords) {
+            const updatedSizeStock = { ...(product.sizeStock || {}) };
+            if (item.size && updatedSizeStock[item.size] !== undefined) {
+                updatedSizeStock[item.size] = Math.max(0, updatedSizeStock[item.size] - item.qty);
+            }
+            const newTotalStock = Math.max(0, product.stock - item.qty);
+            await product.update({ stock: newTotalStock, sizeStock: updatedSizeStock });
+        }
+
+        // 6. Create order
+        const customerName = `${billingDetails.firstName} ${billingDetails.lastName}`.trim();
+        const newOrder = await Order.create({
+            id: orderId,
+            userId: 'manual',
+            userName: customerName,
+            date: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }),
+            total: orderTotal,
+            status: 'Confirmed',
+            paymentMethod: paymentMethod || 'Manual',
+            items: orderItems,
+            billingDetails,
+            shippingDetails: shippingDetails || billingDetails,
+            notes: notes || '',
+            orderSource: 'manual'
+        });
+
+        res.json({ success: true, order: newOrder, message: 'Manual order placed successfully!', shipping: totalShipping });
+    } catch (error) {
+        console.error('Manual Order Error:', error);
+        res.status(500).json({ success: false, message: 'Failed to place manual order: ' + error.message });
+    }
+});
+
 
 // --- CATEGORIES ---
 app.get('/api/categories', async (req, res) => { try { const categories = await Category.findAll(); res.json({ success: true, categories }); } catch { res.status(500).json({}); } });
