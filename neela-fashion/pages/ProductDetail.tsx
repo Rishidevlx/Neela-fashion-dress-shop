@@ -4,7 +4,7 @@ import { Minus, Plus, ShoppingBag, Star, Heart, AlertCircle, Camera, Send, User 
 import { useCart } from '../context/CartContext';
 import { useWishlist } from '../context/WishlistContext';
 import { useAuth } from '../context/AuthContext';
-import { Product, Review, AVAILABLE_SIZES } from '../types';
+import { Product, Review, AVAILABLE_SIZES, KIDS_SIZES } from '../types';
 import ProductCard from '../components/ProductCard';
 import { useCMS } from '../context/CMSContext';
 
@@ -78,6 +78,11 @@ const ProductDetail: React.FC = () => {
   const productReviews = reviews.filter(r => r.productId === product.id);
 
   // Stock Logic
+  const hasKidsSizes = product.sizeStock && Object.keys(product.sizeStock).some(s => KIDS_SIZES.includes(s));
+  let activeSizes = hasKidsSizes ? KIDS_SIZES : AVAILABLE_SIZES;
+  if (product?.showFreeSize === false) {
+      activeSizes = activeSizes.filter(s => s !== 'Free Size');
+  }
   const currentSizeStock = selectedSize && product.sizeStock ? (product.sizeStock[selectedSize] || 0) : 0;
   const isSizeSelected = !!selectedSize;
   
@@ -253,7 +258,7 @@ const ProductDetail: React.FC = () => {
                   </div>
                   
                   <div className="flex flex-wrap gap-3">
-                      {AVAILABLE_SIZES.map(size => {
+                      {activeSizes.map(size => {
                           const stockForSize = product.sizeStock ? (product.sizeStock[size] || 0) : 0;
                           const isSizeDisabled = stockForSize === 0;
                           

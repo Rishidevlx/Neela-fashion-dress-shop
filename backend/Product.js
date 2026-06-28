@@ -35,6 +35,12 @@ const Product = sequelize.define('Product', {
     sizePrices: {
         type: DataTypes.JSON, // Stores { "S": 1000, "M": 1200, "L": 1500 }
         defaultValue: {}
+    },
+    
+    // NEW: Toggle to show/hide free size
+    showFreeSize: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: true
     }
 });
 
@@ -53,6 +59,14 @@ const seedProducts = async () => {
             if (results.length === 0) {
                 console.log('⚙️ Adding missing "sizePrices" column...');
                 await sequelize.query("ALTER TABLE Products ADD COLUMN sizePrices JSON");
+            }
+            
+            const [fsResult] = await sequelize.query(
+                "SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Products' AND COLUMN_NAME = 'showFreeSize' AND TABLE_SCHEMA = DATABASE()"
+            );
+            if (fsResult.length === 0) {
+                console.log('⚙️ Adding missing "showFreeSize" column...');
+                await sequelize.query("ALTER TABLE Products ADD COLUMN showFreeSize BOOLEAN DEFAULT true");
             }
         } catch (e) { console.log('ℹ️ Table check passed.'); }
 

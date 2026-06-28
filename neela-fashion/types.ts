@@ -13,6 +13,7 @@ export interface Product {
   stock: number;
   sizeStock?: { [key: string]: number };
   sizePrices?: { [key: string]: number }; // NEW: Size specific price
+  showFreeSize?: boolean; // Toggle for "Free Size" display
 }
 
 export interface CartItem extends Product {
@@ -177,4 +178,10 @@ export const SHIPPING_TYPES: { value: ShippingRuleType, label: string }[] = [
   { value: 'every_10', label: 'Ten Piece Extra' },
 ];
 
-export const AVAILABLE_SIZES = ["S", "M", "L", "XL", "XXL", "3XL", "4XL", "5XL"];
+export const AVAILABLE_SIZES = ["Free Size", "S", "M", "L", "XL", "XXL", "3XL", "4XL", "5XL"];
+export const KIDS_SIZES = [
+  "Free Size", "0-6 month", "6-12 month", "1-2 years", "2-3 years", "3-4 years", 
+  "4-5 years", "5-6 years", "6-7 years", "7-8 years", "8-9 years", 
+  "9-10 years", "10-11 years", "11-12 years", "12-13 years", 
+  "13-14 years", "14-15 years", "15-16 years", "16-17 years"
+];

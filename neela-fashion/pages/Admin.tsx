@@ -11,7 +11,7 @@ import {
   TrendingUp, AlertCircle, MessageSquare, Star, Info, Loader, RefreshCcw,
   ClipboardList, Truck, CreditCard, Monitor
 } from 'lucide-react';
-import { Product, ShippingRule, INDIAN_STATES, SHIPPING_TYPES, Order, ContactContent, User, AVAILABLE_SIZES } from '../types';
+import { Product, ShippingRule, INDIAN_STATES, SHIPPING_TYPES, Order, ContactContent, User, AVAILABLE_SIZES, KIDS_SIZES } from '../types';
 
 // --- Reusable Components ---
 
@@ -826,6 +826,8 @@ const ProductManagerView = ({ setToast }: { setToast: (msg: string) => void }) =
     const additionalImageInputRef = useRef<HTMLInputElement>(null);
     const csvInputRef = useRef<HTMLInputElement>(null);
 
+    const [isKidsSize, setIsKidsSize] = useState(false);
+
     // Initial Size Stock State for Form
     const [sizeStockInput, setSizeStockInput] = useState<{ [key: string]: number }>({});
     const [sizePriceInput, setSizePriceInput] = useState<{ [key: string]: number }>({});
@@ -841,15 +843,30 @@ const ProductManagerView = ({ setToast }: { setToast: (msg: string) => void }) =
         
         setIsSaving(true); 
 
-        // Calculate Total Stock from Size Inputs
+        // Calculate Total Stock from Size Inputs based on toggle
+        const activeSizes = isKidsSize ? KIDS_SIZES : AVAILABLE_SIZES;
         let totalStock = 0;
-        Object.values(sizeStockInput).forEach(val => totalStock += Number(val));
+        const filteredSizeStockInput: { [key: string]: number } = {};
+        const filteredSizePriceInput: { [key: string]: number } = {};
+
+        Object.entries(sizeStockInput).forEach(([size, qty]) => {
+            if (activeSizes.includes(size) && Number(qty) > 0) {
+                totalStock += Number(qty);
+                filteredSizeStockInput[size] = Number(qty);
+            }
+        });
+
+        Object.entries(sizePriceInput).forEach(([size, price]) => {
+            if (activeSizes.includes(size) && Number(price) > 0) {
+                filteredSizePriceInput[size] = Number(price);
+            }
+        });
 
         const finalProductData = {
             ...editProduct,
             stock: totalStock, // Total is sum of sizes
-            sizeStock: sizeStockInput, // Specific size data
-            sizePrices: sizePriceInput // Specific size price data
+            sizeStock: filteredSizeStockInput, // Specific size data
+            sizePrices: filteredSizePriceInput // Specific size price data
         };
 
         if (editProduct.id) { 
@@ -871,8 +888,9 @@ const ProductManagerView = ({ setToast }: { setToast: (msg: string) => void }) =
                 rating: 5, 
                 stock: totalStock,
                 sizeStock: sizeStockInput,
-                sizePrices: sizePriceInput
-            }; 
+                sizePrices: sizePriceInput,
+                showFreeSize: editProduct.showFreeSize !== false
+            };  
             await addProduct(newP); 
         } 
         setIsSaving(false); 
@@ -881,13 +899,16 @@ const ProductManagerView = ({ setToast }: { setToast: (msg: string) => void }) =
     
     const openModal = (p?: Product) => { 
         if (p) { 
-            setEditProduct({ ...p }); 
+            setEditProduct({ ...p, showFreeSize: p.showFreeSize !== false }); 
             setSizeStockInput(p.sizeStock || {}); 
             setSizePriceInput(p.sizePrices || {});
+            const hasKidsSizes = p.sizeStock && Object.keys(p.sizeStock).some(size => KIDS_SIZES.includes(size));
+            setIsKidsSize(!!hasKidsSizes);
         } else { 
-            setEditProduct({ name: '', category: Object.keys(categories)[0] || '', subCategory: '', price: 0, stock: 0, description: '', image: '', images: [] }); 
+            setEditProduct({ name: '', category: Object.keys(categories)[0] || '', subCategory: '', price: 0, stock: 0, description: '', image: '', images: [], showFreeSize: true }); 
             setSizeStockInput({}); 
             setSizePriceInput({});
+            setIsKidsSize(false);
         } 
         setIsModalOpen(true); 
     }; 
@@ -1090,9 +1111,27 @@ const ProductManagerView = ({ setToast }: { setToast: (msg: string) => void }) =
                  
                  {/* SIZE STOCK & PRICE GRID */}
                  <div className="md:col-span-2 bg-gray-50 p-6 rounded border border-gray-200">
-                     <label className="text-xs font-bold uppercase text-navy-900 mb-4 block">Size Inventory & Pricing (Optional Override)</label>
+                     <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-4">
+                         <label className="text-xs font-bold uppercase text-navy-900">Size Inventory & Pricing (Optional Override)</label>
+                         <div className="flex items-center gap-4 flex-wrap">
+                             <label className="flex items-center cursor-pointer text-xs font-bold text-navy-900 border border-gray-200 px-3 py-1.5 rounded bg-white hover:bg-gray-50 transition-colors">
+                                 <input type="checkbox" className="mr-2 cursor-pointer w-4 h-4 accent-navy-900" checked={editProduct.showFreeSize !== false} onChange={(e) => {
+                                     if (!e.target.checked && (Number(sizeStockInput['Free Size']) || 0) > 0) {
+                                         setToast("Please set 'Free Size' stock to 0 before hiding it to avoid inventory confusion!");
+                                     } else {
+                                         setEditProduct({...editProduct, showFreeSize: e.target.checked});
+                                     }
+                                 }} />
+                                 Show 'Free Size'
+                             </label>
+                             <div className="flex items-center bg-gray-200 rounded-full p-1 cursor-pointer w-fit" onClick={() => setIsKidsSize(!isKidsSize)}>
+                                 <div className={`px-4 py-1 text-xs font-bold rounded-full transition-all ${!isKidsSize ? 'bg-white shadow text-navy-900' : 'text-gray-500'}`}>Normal Size</div>
+                                 <div className={`px-4 py-1 text-xs font-bold rounded-full transition-all ${isKidsSize ? 'bg-white shadow text-navy-900' : 'text-gray-500'}`}>Kidz Size</div>
+                             </div>
+                         </div>
+                     </div>
                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-6">
-                         {AVAILABLE_SIZES.map(size => (
+                         {(isKidsSize ? KIDS_SIZES : AVAILABLE_SIZES).filter(size => size !== 'Free Size' || editProduct.showFreeSize !== false).map(size => (
                              <div key={size} className="bg-white p-3 rounded border border-gray-100">
                                  <label className="block text-sm font-bold text-navy-900 mb-2 border-b pb-1">{size}</label>
                                  <div className="space-y-2">
@@ -1121,7 +1160,7 @@ const ProductManagerView = ({ setToast }: { setToast: (msg: string) => void }) =
                          ))}
                      </div>
                      <p className="text-[10px] text-gray-400 mt-4 text-right">
-                        Total Stock: {Object.values(sizeStockInput).reduce((a: number, b: any) => a + Number(b), 0)}
+                        Total Stock: {(isKidsSize ? KIDS_SIZES : AVAILABLE_SIZES).filter(size => size !== 'Free Size' || editProduct.showFreeSize !== false).reduce((sum, size) => sum + (Number(sizeStockInput[size]) || 0), 0)}
                      </p>
                  </div>
 

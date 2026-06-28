@@ -19,6 +19,7 @@ require('dotenv').config();
 const app = express();
 
 // --- SMART CORS SETUP ---
+
 const allowedOrigins = [
     'https://neelafashion.com',
     'https://www.neelafashion.com',

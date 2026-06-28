@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Plus, Eye, Heart, AlertTriangle, Ban, X, ShoppingBag } from 'lucide-react';
-import { Product, AVAILABLE_SIZES } from '../types';
+import { Product, AVAILABLE_SIZES, KIDS_SIZES } from '../types';
 import { useCart } from '../context/CartContext';
 import { useWishlist } from '../context/WishlistContext';
 
@@ -19,6 +19,12 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   const isLiked = isInWishlist(product.id);
   const isOutOfStock = product.stock === 0;
   const isLowStock = product.stock > 0 && product.stock < 5;
+
+  const hasKidsSizes = product.sizeStock && Object.keys(product.sizeStock).some(s => KIDS_SIZES.includes(s));
+  let activeSizes = hasKidsSizes ? KIDS_SIZES : AVAILABLE_SIZES;
+  if (product.showFreeSize === false) {
+      activeSizes = activeSizes.filter(s => s !== 'Free Size');
+  }
 
   const handleAddToCartClick = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -149,7 +155,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
                         <button onClick={closeSizeSelection} className="text-gray-400 hover:text-red-500"><X size={14} /></button>
                     </div>
                     <div className="flex flex-wrap gap-2 justify-center">
-                        {AVAILABLE_SIZES.map(size => {
+                        {activeSizes.map(size => {
                             const stockForSize = product.sizeStock ? (product.sizeStock[size] || 0) : 0;
                             const hasStock = stockForSize > 0;
                             
